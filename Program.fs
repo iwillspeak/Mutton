@@ -4,6 +4,7 @@ module Main =
     open System
     open Firethorn.Red
     open Mutton.Syntax
+    open Parse
 
     [<EntryPoint>]
     let main args =
@@ -11,9 +12,13 @@ module Main =
             Console.Write(prompt)
             Console.Out.Flush()
             let line = Console.ReadLine()
-            let parsed = Parse.parse line
-            printfn ">> %A" parsed
-            Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) parsed.Tree
+
+            match Parse.parse line with
+            | { Diagnostics = []; Tree = tr } -> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr
+            | { Diagnostics = diags } ->
+                for diag in diags do
+                    match diag with
+                    | Diagnostic message -> eprintfn "!! %s" message
 
             repl prompt
 

@@ -1,7 +1,6 @@
 module Mutton.Parse
 
 open Lex
-open System.Collections.Generic
 open Firethorn.Green
 open Firethorn.Red
 open Mutton.Syntax
