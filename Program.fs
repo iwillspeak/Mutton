@@ -16,7 +16,9 @@ module Main =
             match Parse.parse line with
             | { Diagnostics = []; Tree = tr } ->
                 Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
-                printfn "&> %A" (Illuminate.illum tr)
+                let il = Illuminate.illum tr
+                printfn "&& %A" il
+                printfn "** %A" (Binder.bind il)
             | { Diagnostics = diags } ->
                 for diag in diags do
                     match diag with

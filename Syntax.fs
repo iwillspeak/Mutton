@@ -2,6 +2,7 @@ namespace Mutton.Syntax
 
 open Firethorn.Red
 open System.Text
+open Firethorn
 
 type public SyntaxKind =
     | ERROR = -1
@@ -27,6 +28,32 @@ module SyntaxKinds =
     let greenToAst =
         function
         | Firethorn.SyntaxKind n -> enum<SyntaxKind> n
+
+[<AbstractClass>]
+type public Value internal (red: SyntaxToken) =
+
+    member _.Syntax = red
+
+    override _.ToString() = red.Green.Text
+
+    static member FromRaw(node: SyntaxToken) =
+        match node.Kind |> SyntaxKinds.greenToAst with
+        | SyntaxKind.NUM -> Some(new NumberValue(node) :> Value)
+        | SyntaxKind.SYM -> Some(new SymValue(node))
+        | _ -> None
+
+and NumberValue internal (red: SyntaxToken) =
+
+    inherit Value(red)
+
+    member _.Inner = red.Green.Text |> int
+
+and SymValue internal (red: SyntaxToken) =
+
+    inherit Value(red)
+
+    member _.Identifier = red.Green.Text
+
 
 [<AbstractClass>]
 type public Node internal (red: SyntaxNode) =
@@ -61,6 +88,13 @@ and Form internal (red: SyntaxNode) =
 and Atom internal (red: SyntaxNode) =
     inherit Expression(red)
 
+    member _.Value =
+        red.ChildrenWithTokens()
+        |> Seq.choose NodeOrToken.asToken
+        |> Seq.tryExactlyOne
+        |> Option.bind Value.FromRaw
+
+
 and Program internal (red: SyntaxNode) =
     inherit Node(red)
 
@@ -74,3 +108,9 @@ module Patterns =
         | :? Form as f -> Form f
         | :? Atom as a -> Atom a
         | _ -> failwithf "Unrecognised expression %A" exp
+
+    let (|NumberValue|SymValue|) (v: Value) =
+        match v with
+        | :? NumberValue as n -> NumberValue n
+        | :? SymValue as s -> SymValue s
+        | _ -> failwithf "Unrecognised value %A" v
