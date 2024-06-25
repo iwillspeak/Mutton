@@ -14,7 +14,9 @@ module Main =
             let line = Console.ReadLine()
 
             match Parse.parse line with
-            | { Diagnostics = []; Tree = tr } -> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr
+            | { Diagnostics = []; Tree = tr } ->
+                Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
+                printfn "&> %A" (Illuminate.illum tr)
             | { Diagnostics = diags } ->
                 for diag in diags do
                     match diag with

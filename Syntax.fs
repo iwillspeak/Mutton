@@ -1,6 +1,7 @@
 namespace Mutton.Syntax
 
 open Firethorn.Red
+open System.Text
 
 type public SyntaxKind =
     | ERROR = -1
@@ -27,9 +28,24 @@ module SyntaxKinds =
         function
         | Firethorn.SyntaxKind n -> enum<SyntaxKind> n
 
+[<AbstractClass>]
+type public Node internal (red: SyntaxNode) =
+
+    member _.Syntax = red
+
+    override _.ToString() =
+        Walk.walk red
+        |> Seq.fold
+            (fun (sb: StringBuilder) ev ->
+                match ev with
+                | OnToken t -> sb.Append(t.Green.Text)
+                | _ -> sb)
+            (new StringBuilder())
+        |> (_.ToString())
 
 [<AbstractClass>]
-type public Expression internal () =
+type public Expression internal (red: SyntaxNode) =
+    inherit Node(red)
 
     static member FromRaw(node: SyntaxNode) =
         match node.Kind |> SyntaxKinds.greenToAst with
@@ -38,9 +54,23 @@ type public Expression internal () =
         | _ -> None
 
 and Form internal (red: SyntaxNode) =
-    inherit Expression()
+    inherit Expression(red)
 
     member _.Body = red.Children() |> Seq.choose (Expression.FromRaw)
 
 and Atom internal (red: SyntaxNode) =
-    inherit Expression()
+    inherit Expression(red)
+
+and Program internal (red: SyntaxNode) =
+    inherit Node(red)
+
+    member _.Body = red.Children() |> Seq.choose (Expression.FromRaw)
+
+[<AutoOpen>]
+module Patterns =
+
+    let (|Form|Atom|) (exp: Expression) =
+        match exp with
+        | :? Form as f -> Form f
+        | :? Atom as a -> Atom a
+        | _ -> failwithf "Unrecognised expression %A" exp

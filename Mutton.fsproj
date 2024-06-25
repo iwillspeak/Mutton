@@ -7,6 +7,7 @@
     <Compile Include="Syntax.fs" />
     <Compile Include="Lex.fs" />
     <Compile Include="Parse.fs" />
+    <Compile Include="Illuminate.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

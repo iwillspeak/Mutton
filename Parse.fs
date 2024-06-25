@@ -111,4 +111,5 @@ let parse input =
     { Tree =
         tree.BuildRoot(SyntaxKind.PROGRAM |> SyntaxKinds.astToGreen)
         |> SyntaxNode.CreateRoot
+        |> Program
       Diagnostics = state.Diags }
