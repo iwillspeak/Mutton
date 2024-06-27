@@ -6,6 +6,11 @@ module Main =
     open Mutton.Syntax
     open Parse
 
+    let step ch step input =
+        let output = step input
+        printfn "%s~> %A" ch output
+        output
+
     [<EntryPoint>]
     let main args =
         let rec repl (prompt: string) =
@@ -16,9 +21,12 @@ module Main =
             match Parse.parse line with
             | { Diagnostics = []; Tree = tr } ->
                 Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
-                let il = Illuminate.illum tr
-                printfn "&& %A" il
-                printfn "** %A" (Binder.bind il)
+
+                tr
+                |> step "*" (Illuminate.illum)
+                |> step "$" (Expand.expand)
+                |> step "%" (Binder.bind)
+                |> ignore
             | { Diagnostics = diags } ->
                 for diag in diags do
                     match diag with
