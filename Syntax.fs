@@ -4,6 +4,10 @@ open Firethorn.Red
 open System.Text
 open Firethorn
 
+/// Kind Enumeration for Syntax Items
+///
+/// This represents the distinct kinds of nodes and tokens available in the
+/// "green" tree.
 type public SyntaxKind =
     | ERROR = -1
 
@@ -21,14 +25,19 @@ type public SyntaxKind =
 
     | PROGRAM = 100
 
+/// Utility Methods for working with `SyntaxKind`s
 module SyntaxKinds =
 
+    /// Convert a Mutton kind into a raw Firethorn kind
     let astToGreen (kind: SyntaxKind) = Firethorn.SyntaxKind(int kind)
 
+    /// Convert a raw Firethorn kind into a Mutton kind
     let greenToAst =
         function
         | Firethorn.SyntaxKind n -> enum<SyntaxKind> n
 
+/// Base Class for atom values. These are are the syntax tokens that contain
+/// the actual literals within a given `Atom` node.
 [<AbstractClass>]
 type public Value internal (red: SyntaxToken) =
 
@@ -42,12 +51,14 @@ type public Value internal (red: SyntaxToken) =
         | SyntaxKind.SYM -> Some(new SymValue(node))
         | _ -> None
 
+/// An atom value representing a single numeric value
 and NumberValue internal (red: SyntaxToken) =
 
     inherit Value(red)
 
     member _.Inner = red.Green.Text |> int
 
+/// An atom value representing a single symbol reference
 and SymValue internal (red: SyntaxToken) =
 
     inherit Value(red)
@@ -55,6 +66,7 @@ and SymValue internal (red: SyntaxToken) =
     member _.Identifier = red.Green.Text
 
 
+/// Base class for all syntax noddes
 [<AbstractClass>]
 type public Node internal (red: SyntaxNode) =
 
@@ -70,6 +82,7 @@ type public Node internal (red: SyntaxNode) =
             (new StringBuilder())
         |> (_.ToString())
 
+/// Expression node. Either a `Form` or an `Atom`
 [<AbstractClass>]
 type public Expression internal (red: SyntaxNode) =
     inherit Node(red)
@@ -80,11 +93,14 @@ type public Expression internal (red: SyntaxNode) =
         | SyntaxKind.ATOM -> Some(new Atom(node))
         | _ -> None
 
+/// A form value. Represents a parenthesied syntax form.
 and Form internal (red: SyntaxNode) =
     inherit Expression(red)
 
+    /// The body syntax for the form.
     member _.Body = red.Children() |> Seq.choose (Expression.FromRaw)
 
+/// A syntax atom. Represents a single value being used as an expression.
 and Atom internal (red: SyntaxNode) =
     inherit Expression(red)
 
@@ -94,12 +110,15 @@ and Atom internal (red: SyntaxNode) =
         |> Seq.tryExactlyOne
         |> Option.bind Value.FromRaw
 
-
+/// Program node. Represents a sequence of expressions. This is the root of
+/// the syntax tree.
 and Program internal (red: SyntaxNode) =
     inherit Node(red)
 
+    /// The sequence of expressions within the program body.
     member _.Body = red.Children() |> Seq.choose (Expression.FromRaw)
 
+/// Utility patterns to make `match`ing over sytnax trees more ergonomic.
 [<AutoOpen>]
 module Patterns =
 
