@@ -6,6 +6,7 @@ open Mutton.Syntax
 type Bound =
     | Number of int
     | Var of string
+    | App of Bound * Bound List
     | Error
 
 let rec private bindOne =
@@ -21,8 +22,14 @@ let rec private bindOne =
             //       or missing atom value. Most likely as the result of a
             //       parse error.
             Error
-    | _ ->
-        // TODO: Binding of special forms and applications
-        Error
+    | StxForm(items, syntax, _) ->
+        match items with
+        | [] -> 
+            // TODO: Erorr to have no items in application
+            Error
+        | applicant::args ->
+            let called = bindOne applicant
+            let args = List.map (bindOne) args
+            App(called, args)
 
 let public bind = List.map bindOne
