@@ -13,7 +13,7 @@ type public StxContext =
     | Marked of string * StxContext
     | Unit
 
-module private StxContext =
+module public StxContext =
 
     /// An empty syntax context.
     let public empty = Unit
@@ -37,3 +37,15 @@ let rec private illumExpr (exp: Expression) : Stx =
 /// Illuminate the given program `tree`.
 let public illum (tree: Program) =
     tree.Body |> Seq.map (illumExpr) |> List.ofSeq
+
+/// Resolve the identifier in the given syntax context. Returns the canonical
+/// form of this identifier at that soruce location.
+let public resolve id ctx = id
+
+let mutable private idSuffix = ref 0
+
+/// Generate a fresh symbol from the given ID hint
+let public freshId (idHint: Symbol) =
+    let suffix = System.Threading.Interlocked.Increment(idSuffix)
+    let prefix = idHint.Value |> Option.defaultValue "tmp"
+    $"{prefix}.{suffix}"

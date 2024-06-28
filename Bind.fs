@@ -1,7 +1,6 @@
 module Mutton.Binder
 
 open Mutton.Illuminate
-open Mutton.Syntax
 
 /// Bound Expression Node
 ///
@@ -16,9 +15,6 @@ type Bound =
     | Fun of string * Bound
     | Error
 
-// FIXME: This should map the identifier somehow?
-let private resolve = id
-
 /// Bind a single expression
 let rec private bindOne =
     function
@@ -30,7 +26,7 @@ let rec private bindOne =
             //       or missing atom value. Most likely as the result of a
             //       parse error.
             Error
-    | StxIdent(id, _, _) -> Var(resolve id)
+    | StxIdent(id, _, sctx) -> Var(resolve id sctx)
     | StxForm(items, syntax, _) ->
         match items with
         | [] ->
@@ -43,8 +39,8 @@ let rec private bindOne =
                 App(called, args)
 
             match applicant with
-            | StxIdent(id, _, _) ->
-                match resolve id with
+            | StxIdent(id, _, sctx) ->
+                match resolve id sctx with
                 | "lam" -> bindLambda args
                 // TODO: Recognise more special forms here.
                 | _ -> bindSipleApp ()
@@ -52,7 +48,7 @@ let rec private bindOne =
 
 and private bindLambda args =
     match args with
-    | [ StxIdent(id, _, _); body ] -> Fun((resolve id), (bindOne body))
+    | [ StxIdent(id, _, idctx); body ] -> Fun((resolve id idctx), (bindOne body))
     | _ -> Error
 
 /// Main binder entry point. Runs the binder over each input item
