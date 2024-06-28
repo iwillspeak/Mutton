@@ -22,14 +22,9 @@ let private resolve = id
 /// Bind a single expression
 let rec private bindOne =
     function
-    | StxAtom(a, _) ->
-        match a.Value with
-        | Some(NumberValue n) -> Number n.Inner
-        | Some(SymValue s) ->
-            // FIXME: This should be an error. Symbols and atoms need to be
-            //        distinct. Should we have a Literal + Symbol as different
-            //        parse items?
-            Var(resolve s.Identifier)
+    | StxLiteral(l, _) ->
+        match l.Value with
+        | Some(n) -> Number n
         | _ ->
             // TODO: Implement binder erorrs. This is the case of a malformed
             //       or missing atom value. Most likely as the result of a

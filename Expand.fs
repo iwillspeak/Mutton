@@ -21,7 +21,7 @@ let private expandInCtx (ctx: Map<string, Transform>) (stx: Stx) : Stx * Map<str
     match stx with
     | StxForm _ -> (stx, ctx)
     | StxIdent(id, a, sctx) -> (StxIdent(resolve id, a, sctx), ctx)
-    | StxAtom(a, _) ->
+    | StxLiteral(a, _) ->
         match a.Value with
         | _ -> (stx, ctx)
 

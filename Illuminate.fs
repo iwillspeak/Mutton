@@ -20,18 +20,18 @@ module private StxContext =
 
 /// A node in the illuminated syntax tree
 type public Stx =
-    | StxAtom of Atom * StxContext
-    | StxIdent of string * Atom * StxContext
+    | StxLiteral of Literal * StxContext
+    | StxIdent of string * Symbol * StxContext
     | StxForm of Stx list * Form * StxContext
 
 /// Illuminate a single expression. This attaches syntax context to atoms, and
 /// recurses to process the elements of a form.
 let rec private illumExpr (exp: Expression) : Stx =
     match exp with
-    | Atom a ->
-        match a.Value with
-        | Some(SymValue id) -> StxIdent(id.Identifier, a, StxContext.empty)
-        | _ -> StxAtom(a, StxContext.empty)
+    | Symbol s ->
+        // FIXME: We shouldn't have to call `.Value` here, or we should handle it.
+        StxIdent(s.Value.Value, s, StxContext.empty)
+    | Literal l -> StxLiteral(l, StxContext.empty)
     | Form f -> StxForm((Seq.map illumExpr f.Body |> List.ofSeq), f, StxContext.empty)
 
 /// Illuminate the given program `tree`.

@@ -66,13 +66,13 @@ module private State =
         else
             state
 
-/// Parse a single atomic value. Accepts either a symbol or number
-let private parseAtom (builder: GreenNodeBuilder) state =
-    builder.StartNode(SyntaxKind.ATOM |> SyntaxKinds.astToGreen)
+/// Parse a single constant value. This is the code path where we will emit an
+/// error into our tree if an unexpected token is encountered.
+let private parseConstant (builder: GreenNodeBuilder) state =
+    builder.StartNode(SyntaxKind.CONST |> SyntaxKinds.astToGreen)
 
     let state =
         match currentKind state with
-        | TokenKind.Sym -> state |> eat builder SyntaxKind.SYM
         | TokenKind.Number -> state |> eat builder SyntaxKind.NUM
         | kind ->
             state
@@ -82,15 +82,25 @@ let private parseAtom (builder: GreenNodeBuilder) state =
     builder.FinishNode()
     state
 
+/// Parse a single symbol as an identifier
+let private parseSym (builder: GreenNodeBuilder) state =
+    builder.StartNode(SyntaxKind.IDENT |> SyntaxKinds.astToGreen)
+
+    let state = expect builder TokenKind.Sym SyntaxKind.SYM state
+
+    builder.FinishNode()
+    state
+
+
 /// Parse an expression that is either a form or an atom. Handles leading
 /// and trailing whitespace.
 let rec private parseExpression (builder: GreenNodeBuilder) state =
     let state = skipWs builder state
 
-    if currentKind state = TokenKind.OpenParen then
-        parseForm builder state
-    else
-        parseAtom builder state
+    match currentKind state with
+    | TokenKind.OpenParen -> parseForm builder state
+    | TokenKind.Sym -> parseSym builder state
+    | _ -> parseConstant builder state
     |> skipWs builder
 
 /// Parse a parenthesised expression form. This parser expects the current token
