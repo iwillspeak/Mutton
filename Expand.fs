@@ -31,21 +31,21 @@ let rec private expandInCtx (ctx: Map<string, Transform>) (stx: Stx) : Stx * Map
                     match rands with
                     | StxIdent(argId, argSym, argSctx) :: body ->
                         let freshName = freshId argSym
-                        let fresh = Var(freshName, argSym, StxContext.empty)
+                        let fresh = Var(freshName, argSym, StxContext.Unit)
                         let bodyCtx = Map.add (resolve argId argSctx) fresh ctx
                         let body = List.mapFold (expandInCtx) bodyCtx body |> fst
-                        (StxForm(rator :: StxIdent(freshName, argSym, StxContext.empty) :: body, sForm, fSCtx), ctx)
+                        (StxForm(rator :: StxIdent(freshName, argSym, StxContext.Unit) :: body, sForm, fSCtx), ctx)
                     | _ -> failwithf "Invalid lambda form %A" sForm
                 | Some(Quote) -> (stx, ctx)
                 | Some(Def) ->
                     match rands with
                     | [ StxIdent(defId, defSym, defSctx); expr ] ->
                         let freshName = freshId defSym
-                        let fresh = Var(freshName, defSym, StxContext.empty)
+                        let fresh = Var(freshName, defSym, StxContext.Unit)
                         let body, ctx = expandInCtx ctx expr
                         let ctx = Map.add (resolve defId defSctx) fresh ctx
-                        (StxForm([ rator; StxIdent(freshName, defSym, StxContext.empty); body ], sForm, fSCtx), ctx)
-                    | _ -> failwithf "Invalid def form %A" sForm
+                        (StxForm([ rator; StxIdent(freshName, defSym, StxContext.Unit); body ], sForm, fSCtx), ctx)
+                    | _ -> failwithf "ERR:%A Invalid def form %A" sForm.Syntax.Range sForm
                 | Some(Var(idNew, symNew, ctxNew)) ->
                     (StxForm(StxIdent(idNew, symNew, ctxNew) :: List.map (expandInCtx ctx >> fst) rands, sForm, fSCtx),
                      ctx)

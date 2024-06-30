@@ -13,11 +13,6 @@ type public StxContext =
     | Marked of string * StxContext
     | Unit
 
-module public StxContext =
-
-    /// An empty syntax context.
-    let public empty = Unit
-
 /// A node in the illuminated syntax tree
 type public Stx =
     | StxLiteral of Literal * StxContext
@@ -30,9 +25,9 @@ let rec private illumExpr (exp: Expression) : Stx =
     match exp with
     | Symbol s ->
         // FIXME: We shouldn't have to call `.Value` here, or we should handle it.
-        StxIdent(s.Value.Value, s, StxContext.empty)
-    | Literal l -> StxLiteral(l, StxContext.empty)
-    | Form f -> StxForm((Seq.map illumExpr f.Body |> List.ofSeq), f, StxContext.empty)
+        StxIdent(s.Value.Value, s, StxContext.Unit)
+    | Literal l -> StxLiteral(l, StxContext.Unit)
+    | Form f -> StxForm((Seq.map illumExpr f.Body |> List.ofSeq), f, StxContext.Unit)
 
 /// Illuminate the given program `tree`.
 let public illum (tree: Program) =
@@ -40,7 +35,16 @@ let public illum (tree: Program) =
 
 /// Resolve the identifier in the given syntax context. Returns the canonical
 /// form of this identifier at that soruce location.
-let public resolve id ctx = id
+let rec public resolve id =
+    function
+    | Remapped (before, after, parent) ->
+        if before = id then
+            resolve after parent
+        else
+            resolve id parent
+    | Marked (_, parent) -> resolve id parent
+    | Unit -> id
+
 
 let mutable private idSuffix = ref 0
 
