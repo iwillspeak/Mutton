@@ -1,0 +1,4 @@
+(def-syn or
+    ((or a b) ((lam x (if x x b)) a)))
+
+(or 1 (or 2 3))

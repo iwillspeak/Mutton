@@ -1,0 +1,3 @@
+((lam x (quot x)) 100)
+((lam y (stx y)) 200)
+((lam z z) 300)
