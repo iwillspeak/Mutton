@@ -1,4 +1,4 @@
 (def-syn compose
-  ((compose f g x) ((f (g x)))))
+  ((compose f g) (lam x (f (g x)))))
 
 ((compose (lam a a) (lam b b)) 99)

@@ -42,17 +42,17 @@ dotnet run --show-syntax --show-bound < spec/test-simple-macro.mut
 - `test-simple-macro.mut` - Basic identity macro (returns argument unchanged)
 - `test-literal-pattern.mut` - Pattern matching with variable substitution
 - `test-wrap-lambda.mut` - Wrapping expression in lambda (demonstrates hygiene)
+- `test-nested-macro.mut` - Nested macro with lambda introduction
+- `test-multi-arg-macro.mut` - Apply macro with function argument
 - `test-double-app.mut` - Repeated function application
 - `test-quote-syntax.mut` - Syntax quotation with `stx` form
 - `test-unless.mut` - Argument reordering (simple transformation)
+- `test-compose.mut` - Function composition (higher-order abstraction)
 
 #### Failing Tests ❌
-- `test-nested-macro.mut` - Scheme-style multi-param lambda syntax (not supported)
-- `test-multi-arg-macro.mut` - Same lambda syntax issue
 - `test-ellipsis-pattern.mut` - Variadic patterns (no `...` support)
 - `test-let-macro.mut` - Destructuring patterns + ellipsis (too complex)
 - `test-cond-macro.mut` - Conditional with multiple clauses and nesting
-- `test-compose.mut` - Function composition with nested structures
 
 ### Original
 - `mn.mut` - Original specification example from the project
@@ -68,16 +68,29 @@ dotnet run --show-syntax --show-bound < spec/test-simple-macro.mut
 - Template-introduced bindings get fresh names
 
 ### What Doesn't Work ❌
-- **Tree-structured pattern matching** - Can only match on argument count, not structure
+- **Destructuring patterns** - Can only match on argument count, not nested structure
 - **Literal keywords** - All pattern elements are variables (can't match `else` as literal)
 - **Ellipsis patterns** - No support for `...` repetition
-- **Destructuring** - Can't match nested forms like `((x y))`
 - **Multi-parameter lambdas** - Only supports `(lam x body)`, not `(lambda (x y) body)`
+
+### Workarounds ✨
+Instead of destructuring arguments in patterns, you can generate nested structures in templates. This enables:
+- ✅ Higher-order functions (composition, etc.)
+- ✅ Complex transformations
+- ✅ Argument reordering and manipulation
 
 ## Conclusion
 
-**The current Mutton macro system is NOT sufficient to implement R7RS syntax-rules.**
+**The current Mutton macro system is NOT sufficient for full R7RS syntax-rules, but is more powerful than the name suggests.**
 
-Mutton's system is well-suited for simple syntactic abstractions but lacks the structured pattern-matching infrastructure required for R7RS compliance. Implementing full R7RS support would require fundamental additions to the pattern language.
+Mutton's system is well-suited for:
+- ✅ Syntactic abstractions and higher-order functions
+- ✅ Term-level transformations and rewriting
+- ✅ Hygenic expansion with proper variable capture prevention
 
-For more details, see **ANALYSIS.md**.
+But it cannot implement core R7RS macros that require:
+- ❌ Destructuring (matching nested structures in patterns)
+- ❌ Literal keywords
+- ❌ Variadic patterns with ellipsis
+
+These gaps are fundamental and would require significant language extensions to address.

@@ -32,6 +32,20 @@ Result: Fun ("y.1", Quot (DNum 42)) ✅
 Note: 'y' gets alpha-renamed to 'y.1' for hygiene
 ```
 
+### test-nested-macro.mut
+Introduces a binding in a macro expansion.
+```
+Result: Fun ("y.1", Quot (DNum 42)) ✅
+Note: Variable introduced by macro template gets alpha-renamed
+```
+
+### test-multi-arg-macro.mut
+Applies a function argument to another argument.
+```
+Result: App (Fun ("n.1", Var "n.1"), [Quot (DNum 10)]) ✅
+Note: Macro correctly passes arguments through to application
+```
+
 ### test-double-app.mut
 Applies a function twice to an argument.
 ```
@@ -50,21 +64,14 @@ Reorders arguments in a macro expansion.
 Result: App (Fun ("p.1", App (Var "p.1", [...])), [...]) ✅
 ```
 
+### test-compose.mut
+Function composition: takes two functions, returns a new function that applies them in sequence.
+```
+Result: App (Fun ("x.3", App (Fun ("a.1", ...), [...])), [Quot (DNum 99)]) ✅
+Note: Fresh variable 'x' is alpha-renamed to 'x.3'. Template generates nested structure.
+```
+
 ## Failing Tests ❌
-
-### test-nested-macro.mut (FAILS)
-Attempts to use standard Scheme lambda syntax `(lam (y) body)` with parameter list as a form.
-```
-Error: Invalid lambda form [StxForm ([StxIdent ("y", y, 0)], (y), 0); ...]
-Reason: Mutton only supports single-parameter lambdas: (lam y body)
-```
-
-### test-multi-arg-macro.mut (FAILS)
-Same issue - tries to use multi-parameter lambda syntax.
-```
-Error: Invalid lambda form
-Reason: Same as above
-```
 
 ### test-ellipsis-pattern.mut (FAILS - Simplified Version)
 Attempts variadic macro without actual ellipsis.
@@ -88,13 +95,6 @@ Error: Invalid lambda form
 Reason: Nested structures and lambda syntax limitations
 ```
 
-### test-compose.mut (FAILS)
-Function composition macro with nested template.
-```
-Error: No matching macro rule for arguments [StxForm ([...], (...)), ...]
-Reason: Pattern arity matching only - doesn't match nested structure of arguments
-```
-
 ## Key Insights
 
 1. **Mutton's lambda syntax requires**:
@@ -103,17 +103,19 @@ Reason: Pattern arity matching only - doesn't match nested structure of argument
 
 2. **Pattern matching is arity-based**:
    - `(m a b c)` matches a 3-parameter pattern
-   - `(m (f (g x)))` does NOT decompose the nested structure
+   - `(m (f (g x)))` does NOT destructure the nested structure
    - Pattern elements are ALWAYS variables, never literals
+   - **BUT**: You can generate nested structures in the template!
 
 3. **What works well**:
    - Linear substitution of variables
-   - Simple term-level macros
+   - Simple and higher-order term-level macros
    - Hygenic expansion
    - Syntax quotation
+   - Function composition and abstraction
 
-4. **What's missing for R7RS**:
-   - Structured pattern matching
+4. **What's missing for full R7RS**:
+   - Destructuring patterns (match nested forms in pattern position)
    - Literal keywords
    - Ellipsis repetition
    - Multi-parameter lambda support
@@ -123,11 +125,12 @@ Reason: Pattern arity matching only - doesn't match nested structure of argument
 Mutton's macro system is suitable for:
 - ✅ Simple syntactic abstractions
 - ✅ Meta-predicates
+- ✅ Higher-order function abstraction
 - ✅ Inline transformations
 - ✅ Linear term rewriting
 
 But NOT suitable for:
-- ❌ R7RS syntax-rules
-- ❌ Complex pattern matching
+- ❌ Full R7RS syntax-rules
+- ❌ Multi-parameter destructuring
 - ❌ Variadic macros
-- ❌ Destructuring patterns
+- ❌ Literal keyword patterns

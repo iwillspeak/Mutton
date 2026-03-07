@@ -52,6 +52,15 @@ Based on testing Mutton's current macro system against progressively complex R7R
 **Status**: ✅ WORKS
 **Notes**: Template can rearrange arguments arbitrarily.
 
+### 6. Higher-Order Functions (Function Composition)
+**Example**:
+```scheme
+(def-syn compose
+  ((compose f g) (lam x (f (g x)))))
+```
+**Status**: ✅ WORKS
+**Notes**: You don't destructure arguments—you generate the nested structure in the template. Fresh template-introduced variables (`x`) are properly alpha-renamed (`x.3`) for hygiene.
+
 ## System Limitations (What Fails ❌)
 
 ### 1. Tree-Structured Pattern Matching
@@ -112,17 +121,19 @@ Based on testing Mutton's current macro system against progressively complex R7R
 
 **Severity**: 🔴 CRITICAL - Requires both tree matching and ellipsis.
 
-### 5. Nested Form Construction in Templates
-**Example**:
+### 5. Destructuring Pattern Matching
+**R7RS example (unsupported)**:
 ```scheme
-((compose f g x) ((f (g x))))
+(define-syntax let
+  (syntax-rules ()
+    ((let ((x e) rest ...) body) ...)))
 ```
 
-**Mutton's limitation**: The template `((f (g x)))` is interpreted as a top-level application of `(f (g x))`, but the pattern matching doesn't properly decompose the incoming `(f (g x))` structure from the arguments.
+**Mutton's limitation**: Cannot match nested structures in pattern position. A pattern like `((x e))` cannot be matched—patterns can only distinguish based on argument count (arity).
 
-**Testing result**: "No matching macro rule" - the pattern cannot match the nested structure.
+**Workaround**: Generate the nested structure in the template instead of trying to match it in the pattern. This works well for many use cases.
 
-**Severity**: 🔴 CRITICAL - Prevents abstraction over complex expressions.
+**Severity**: 🟡 MODERATE - Limits some use cases but doesn't prevent clever template design.
 
 ## Mutton's Actual Strengths
 
@@ -143,16 +154,28 @@ To support R7RS syntax-rules, Mutton would need:
 
 These are non-trivial additions that would essentially result in a full pattern-matching subsystem.
 
-## Verdict
+## Verdict, but is more capable than initially assessed.**
 
-**Current system is NOT sufficient for R7RS syntax-rules**.
+The key insight: You can write sophisticated macros by generating structure in templates rather than destructuring in patterns.
 
-The macro system is well-designed for simple syntactic abstractions (meta-predicates, inline transformations, term-level rewriting), but lacks the foundational pattern-matching infrastructure required for R7RS.
+What Mutton CAN do:
+- ✅ Function composition and higher-order abstractions
+- ✅ Simple `let` bindings (single variable)
+- ✅ Argument transformation and reordering
+- ✅ Hygenic expansion with proper alpha-renaming
+- ✅ Create arbitrary nested structures in templates
 
-The gap is fundamental, not just a matter of implementation. R7RS requires:
+What Mutton CANNOT do:
+- ❌ Destructure incoming arguments (match nested form structure)
+- ❌ Literal keyword matching
+- ❌ Ellipsis repetition for variadic patterns
+
+The gap is real but narrower than first thought. R7RS requires all of these:
 - **Arity-based matching** ✅ Mutton has this
-- **Structured pattern matching** ❌ Mutton lacks this  
+- **Destructuring patterns** ❌ Mutton lacks this  
 - **Literal keywords** ❌ Mutton lacks this
 - **Ellipsis repetition** ❌ Mutton lacks this
+
+Core R7RS macros like `let` (multi-variable), `cond`, `begin`, and `case` require destructuring or ellipsis. But many useful higher-order abstractions work fine
 
 Without all four, you cannot implement core R7RS macros like `let`, `cond`, `begin`, `case`, etc.
