@@ -1,0 +1,7 @@
+(def-syn m
+  ((m x) ((lam y x) 10)))
+
+(def-syn n
+  ((n z) (m z)))
+
+(n 101)

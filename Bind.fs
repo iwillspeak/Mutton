@@ -19,7 +19,7 @@ type Bound =
     | Error of string
 
 /// Bind a single expression
-let rec private bindOne =
+let rec private bindOne (scopes: ScopeTable) =
     function
     | StxLiteral(l, _) ->
         match l.Value with
@@ -29,7 +29,7 @@ let rec private bindOne =
             //       or missing atom value. Most likely as the result of a
             //       parse error.
             Error $"Invalid literal %A{l}" 
-    | StxIdent(id, _, sctx) -> Var(resolve id sctx)
+    | StxIdent(id, _, scope) -> Var(scopes.Resolve(id, scope))
     | StxForm(items, syntax, _) ->
         match items with
         | [] ->
@@ -37,31 +37,31 @@ let rec private bindOne =
             Error "No applicant in application form."
         | applicant :: args ->
             let bindSipleApp () =
-                let called = bindOne applicant
-                let args = List.map (bindOne) args
+                let called = bindOne scopes applicant
+                let args = List.map (bindOne scopes) args
                 App(called, args)
 
             match applicant with
-            | StxIdent(id, _, sctx) ->
+            | StxIdent(id, _, scope) ->
                 // FIXME: we should look at the _binding_ of the resolved ID here
                 //        not just the plain symbol.
-                match resolve id sctx with
-                | "lam" -> bindLambda args
-                | "def" -> bindDefinition args
+                match scopes.Resolve(id, scope) with
+                | "lam" -> bindLambda scopes args
+                | "def" -> bindDefinition scopes args
                 | "quot" -> bindQuotation args
                 | "stx" -> bindSyntaxQuotation args
                 | _ -> bindSipleApp ()
             | _ -> bindSipleApp ()
 
-and private bindLambda args =
+and private bindLambda (scopes: ScopeTable) args =
     match args with
-    | [ StxIdent(id, _, idctx); body ] -> Fun((resolve id idctx), (bindOne body))
+    | [ StxIdent(id, _, scope); body ] -> Fun((scopes.Resolve(id, scope)), (bindOne scopes body))
     | _ -> Error $"Invalid lambda form %A{args}"
 
-and private bindDefinition args =
+and private bindDefinition (scopes: ScopeTable) args =
     match args with
-    | [ StxIdent(id, _, idCtx); body ] ->
-        Def((resolve id idCtx), (bindOne body))
+    | [ StxIdent(id, _, scope); body ] ->
+        Def((scopes.Resolve(id, scope)), (bindOne scopes body))
     | _ -> $"Invalid `def` form %A{args}" |> Error
 
 and private bindQuotation args =
@@ -75,4 +75,4 @@ and private bindSyntaxQuotation args =
     | _ -> $"Invalid `stx` form: %A{args}" |> Error
 
 /// Main binder entry point. Runs the binder over each input item
-let public bind = List.map bindOne
+let public bind (scopes: ScopeTable) = List.map (bindOne scopes)

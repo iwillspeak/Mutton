@@ -11,27 +11,42 @@ module Main =
         printfn "%s~> %A" ch output
         output
 
+    let private run input =
+        match Parse.parse input with
+        | { Diagnostics = []; Tree = tr } ->
+            Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
+
+            let stx, scopes = Illuminate.illum tr
+            printfn "*~> %A" stx
+
+            let expanded = Expand.expand scopes stx
+            printfn "$~> %A" expanded
+
+            let bound = Binder.bind scopes expanded
+            printfn "%%~> %A" bound
+
+            ()
+        | { Diagnostics = diags } ->
+            for diag in diags do
+                match diag with
+                | Diagnostic message -> eprintfn "!! %s" message
+
     [<EntryPoint>]
     let main args =
-        let rec repl (prompt: string) =
-            Console.Write(prompt)
-            Console.Out.Flush()
-            let line = Console.ReadLine()
+        if Console.IsInputRedirected then
+            Console.In.ReadToEnd() |> run
+        else
+            let rec repl (prompt: string) =
+                Console.Write(prompt)
+                Console.Out.Flush()
+                let line = Console.ReadLine()
 
-            match Parse.parse line with
-            | { Diagnostics = []; Tree = tr } ->
-                Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
+                match line with
+                | null -> () // EOF
+                | line ->
+                    run line
+                    repl prompt
 
-                tr
-                |> step "*" (Illuminate.illum)
-                |> step "$" (Expand.expand)
-                |> step "%" (Binder.bind)
-                |> ignore
-            | { Diagnostics = diags } ->
-                for diag in diags do
-                    match diag with
-                    | Diagnostic message -> eprintfn "!! %s" message
+            repl "> "
 
-            repl prompt
-
-        repl "> "
+        0
