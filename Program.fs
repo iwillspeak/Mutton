@@ -6,26 +6,23 @@ module Main =
     open Mutton.Syntax
     open Parse
 
-    let step ch step input =
-        let output = step input
-        printfn "%s~> %A" ch output
-        output
+    let private run (prog: Program) =
 
-    let private run input =
+        prog.Syntax
+        |> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst)
+
+        let stx, scopes = Illuminate.illum prog
+        printfn "*~> %A" stx
+
+        let bound = Binder.bind scopes stx
+        printfn "%%~> %A" bound
+
+        ()
+
+    let private parse_and_run (input: string) =
         match Parse.parse input with
         | { Diagnostics = []; Tree = tr } ->
-            Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst) tr.Syntax
-
-            let stx, scopes = Illuminate.illum tr
-            printfn "*~> %A" stx
-
-            let expanded = Expand.expand scopes stx
-            printfn "$~> %A" expanded
-
-            let bound = Binder.bind scopes expanded
-            printfn "%%~> %A" bound
-
-            ()
+            run tr
         | { Diagnostics = diags } ->
             for diag in diags do
                 match diag with
@@ -34,9 +31,9 @@ module Main =
     [<EntryPoint>]
     let main args =
         if Console.IsInputRedirected then
-            Console.In.ReadToEnd() |> run
+            Console.In.ReadToEnd() |> parse_and_run
         else
-            let rec repl (prompt: string) =
+            let rec repl (prompt: string) (prog_so_far: string) =
                 Console.Write(prompt)
                 Console.Out.Flush()
                 let line = Console.ReadLine()
@@ -44,9 +41,20 @@ module Main =
                 match line with
                 | null -> () // EOF
                 | line ->
-                    run line
-                    repl prompt
+                    let prog_so_far = prog_so_far + "\n" + line
+                    match Parse.parse prog_so_far with
+                    | { Diagnostics = []; Tree = tr } ->
+                        run tr
+                        repl "> " ""
+                    | { Diagnostics = diags } ->
+                        if prog_so_far.EndsWith("\n\n") then
+                            for diag in diags do
+                                match diag with
+                                | Diagnostic message -> eprintfn "!! %s" message
+                            repl prompt ""
+                        else
+                            repl "| " prog_so_far
 
-            repl "> "
+            repl "> " ""
 
         0

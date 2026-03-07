@@ -97,5 +97,6 @@ let public expand (scopes: ScopeTable) (syntax: Stx list) : Stx list =
         |> Map.add "stx" (Quote)
         |> Map.add "quot" (Quote)
         |> Map.add "def" (Def)
+        |> Map.add "def-syn" (Quote)
 
     syntax |> List.mapFold (expandInCtx scopes) ctx |> fst
