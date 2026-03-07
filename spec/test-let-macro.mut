@@ -1,0 +1,5 @@
+(def-syn let-simple
+  ((let-simple () body) body)
+  ((let-simple ((x e)) body) ((lam (x) body) e)))
+
+(let-simple ((a 5)) a)

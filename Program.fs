@@ -6,23 +6,65 @@ module Main =
     open Mutton.Syntax
     open Parse
 
-    let private run (prog: Program) =
+    type DebugOutput =
+        {
+            showSyntax: bool
+            showIlluminated: bool
+            showBound: bool
+        }
 
-        prog.Syntax
-        |> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst)
+    let private defaultDebugOutput =
+        {
+            showSyntax = false
+            showIlluminated = false
+            showBound = true
+        }
+
+    let private parseDebugArgs (args: string[]) =
+        let mutable output = defaultDebugOutput
+        let mutable inputArgs = []
+
+        for arg in args do
+            match arg with
+            | "--show-syntax" ->
+                output <- { output with showSyntax = true }
+            | "--show-illuminated" ->
+                output <- { output with showIlluminated = true }
+            | "--show-bound" ->
+                output <- { output with showBound = true }
+            | "--show-all" ->
+                output <-
+                    {
+                        showSyntax = true
+                        showIlluminated = true
+                        showBound = true
+                    }
+            | arg when arg.StartsWith("--") ->
+                eprintfn "Unknown option: %s" arg
+            | _ -> inputArgs <- inputArgs @ [arg]
+
+        output, inputArgs
+
+    let private run (debugOutput: DebugOutput) (prog: Program) =
+
+        if debugOutput.showSyntax then
+            prog.Syntax
+            |> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst)
 
         let stx, scopes = Illuminate.illum prog
-        printfn "*~> %A" stx
+        if debugOutput.showIlluminated then
+            printfn "*~> %A" stx
 
         let bound = Binder.bind scopes stx
-        printfn "%%~> %A" bound
+        if debugOutput.showBound then
+            printfn "%%~> %A" bound
 
         ()
 
-    let private parse_and_run (input: string) =
+    let private parse_and_run (debugOutput: DebugOutput) (input: string) =
         match Parse.parse input with
         | { Diagnostics = []; Tree = tr } ->
-            run tr
+            run debugOutput tr
         | { Diagnostics = diags } ->
             for diag in diags do
                 match diag with
@@ -30,8 +72,10 @@ module Main =
 
     [<EntryPoint>]
     let main args =
+        let debugOutput, _ = parseDebugArgs args
+
         if Console.IsInputRedirected then
-            Console.In.ReadToEnd() |> parse_and_run
+            Console.In.ReadToEnd() |> parse_and_run debugOutput
         else
             let rec repl (prompt: string) (prog_so_far: string) =
                 Console.Write(prompt)
@@ -44,7 +88,7 @@ module Main =
                     let prog_so_far = prog_so_far + "\n" + line
                     match Parse.parse prog_so_far with
                     | { Diagnostics = []; Tree = tr } ->
-                        run tr
+                        run debugOutput tr
                         repl "> " ""
                     | { Diagnostics = diags } ->
                         if prog_so_far.EndsWith("\n\n") then

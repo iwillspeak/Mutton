@@ -1,0 +1,4 @@
+(def-syn call
+  ((call f args) (f args)))
+
+(call (lam (x) x) 5)

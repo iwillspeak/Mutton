@@ -1,0 +1,4 @@
+(def-syn if-simple
+  ((if-simple test a b) (test a b)))
+
+(if-simple (lam (x) x) 1 2)

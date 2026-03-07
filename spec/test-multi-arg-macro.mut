@@ -1,0 +1,4 @@
+(def-syn apply-to
+  ((apply-to f x) (f x)))
+
+(apply-to (lam (n) n) 10)

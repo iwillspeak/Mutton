@@ -1,0 +1,4 @@
+(def-syn when-true
+  ((when-true else x) x))
+
+(when-true else 99)

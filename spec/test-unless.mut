@@ -1,0 +1,4 @@
+(def-syn unless
+  ((unless cond a b) (cond b a)))
+
+((lam p (unless p 1 2)) (lam x x))

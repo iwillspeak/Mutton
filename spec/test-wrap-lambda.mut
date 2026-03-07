@@ -1,0 +1,4 @@
+(def-syn wrap-single
+  ((wrap-single x) (lam y x)))
+
+(wrap-single 42)

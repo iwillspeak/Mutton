@@ -1,0 +1,4 @@
+(def-syn double-app
+  ((double-app f x) (f (f x))))
+
+(double-app (lam y y) 7)

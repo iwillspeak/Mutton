@@ -1,0 +1,4 @@
+(def-syn quote-expr
+  ((quote-expr x) (stx x)))
+
+(quote-expr (foo bar baz))

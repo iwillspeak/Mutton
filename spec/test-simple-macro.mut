@@ -1,0 +1,4 @@
+(def-syn id-m
+  ((id-m x) x))
+
+(id-m 42)
