@@ -180,21 +180,24 @@ and private bindSyntaxQuotation f args =
     | [ form ] -> Stx form |> Some |> Result.Ok
     | _ -> Error ($"Invalid `stx` form: %A{args}", f.Syntax.Range)
 
-///
-let rec private bindSequence (ctx: BindingContext) (exprs: Stx list) : Result<Bound list, string * Firethorn.TextRange> =
+let rec private bindSequence (ctx: BindingContext) (stxEnv: StxEnv) (exprs: Stx list) : Result<Bound list, string * Firethorn.TextRange> =
     match exprs with
     | [] -> Ok []
     | stx :: rest ->
-        let stx = Expand.expand stx (Map.empty)
-        let bound = bindOne ctx stx
-        let next = bindSequence ctx rest
-        match bound with
-        | Ok(Some b) ->
-            next |> Result.map (fun bs -> b :: bs)
-        | Ok None -> next
-        | Error e -> Error e
+        match Expand.expand stx stxEnv with
+        | None, newStxEnv ->
+            // def-syn: no runtime value produced; continue with updated env
+            bindSequence ctx newStxEnv rest
+        | Some expanded, newStxEnv ->
+            let bound = bindOne ctx expanded
+            let next = bindSequence ctx newStxEnv rest
+            match bound with
+            | Ok(Some b) ->
+                next |> Result.map (fun bs -> b :: bs)
+            | Ok None -> next
+            | Error e -> Error e
 
 /// Main binder entry point. Runs the binder over each input item
 let public bind =
     let ctx = BinderCtx.empty
-    bindSequence ctx
+    bindSequence ctx Map.empty
