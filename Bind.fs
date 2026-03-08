@@ -1,6 +1,7 @@
 module Mutton.Binder
 
 open Mutton.Illuminate
+open System.Collections.Generic
 
 module Utils =
 
@@ -35,9 +36,9 @@ type Datum =
 /// appropriate storage locations.
 type Bound =
     | Var of Storage
-    | Def of string * Bound
+    | Def of Storage * Bound
     | App of Bound * Bound list
-    | Fun of string * Bound
+    | Fun of Storage * Bound
     | Stx of Stx
     | Quot of Datum
 
@@ -52,27 +53,31 @@ type BinderError = string * Firethorn.TextRange
 type private BindingContext =
     {
         Parent: BindingContext option
-        Bindings: Map<string, string>
+        Bindings: Dictionary<Ident, Storage>
     }
 
-module private BindingContext =
+module private BinderCtx =
 
     /// Create an empty binding context
-    let empty = { Parent = None; Bindings = Map.empty }
+    let empty = { Parent = None; Bindings = Dictionary<Ident, Storage>() }
 
     /// Extend a binding context with a new name mapping
-    let extend name bound ctx =
-        { ctx with Bindings = ctx.Bindings.Add(name, bound) }
+    let extend ident bound ctx =
+        ctx.Bindings.Add(ident, bound)
+
+    /// Create a new child context with the given parent
+    let withParent parent =
+        { Parent = Some parent; Bindings = Dictionary<Ident, Storage>() }
 
     /// Resolve a name in the given context, searching parent contexts if
     /// necessary. Returns the resolved name or the original name if not found.
-    let rec resolve name ctx =
-        match ctx.Bindings.TryFind(name) with
-        | Some bound -> bound
-        | None ->
+    let rec resolve ident ctx =
+        match ctx.Bindings.TryGetValue ident with
+        | true, bound -> bound
+        | false, _->
             match ctx.Parent with
-            | Some parent -> resolve name parent
-            | None -> name
+            | Some parent -> resolve ident parent
+            | None -> ident.Name, 0
 
 // ── Binding ────────────────────────────────────────────────────────────────
 
@@ -87,50 +92,43 @@ let private freshStorage (name: string) : Storage =
 /// compiler metadata (scope IDs, CST node references).
 let rec private strip (stx: Stx) : Datum =
     match stx with
-    | StxLiteral(l, _) ->
+    | StxLiteral l ->
         match l.Value with
         | Some n -> DNum n
         | None -> DSym "#err"
-    | StxIdent(id, _, _) -> DSym id
-    | StxForm(items, _, _) -> DList(List.map strip items)
+    | StxIdent(id, _) -> DSym id.Name
+    | StxForm(items, _) -> DList(List.map strip items)
+    | StxClosure(stx, _) -> strip stx
 
 /// Bind a single expression
-let rec private bindOne =
+let rec private bindOne (ctx: BindingContext) =
     function
-    | StxLiteral(l, _) ->
+    | StxLiteral l ->
         match l.Value with
-        | Some n -> Quot(DNum n) |> Some |> Result.Ok
-        | None -> ($"Invalid literal %A{l}", l.Syntax.Range) |> Result.Error
-    | StxIdent(id, _, sctx) -> Var(freshStorage (resolve id sctx)) |> Some |> Result.Ok
-    | StxForm(items, f, _) ->
+        | Some n -> Quot(DNum n) |> Some |> Ok
+        | None -> ($"Invalid literal %A{l}", l.Syntax.Range) |> Error
+    | StxIdent(id, _) ->
+        Var(BinderCtx.resolve id ctx) |> Some |> Ok
+    | StxForm(items, f) -> 
         match items with
         | [] -> Error ($"No applicant in application form.", f.Syntax.Range)
+        | StxIdent(id, _) :: args when id.Name = "lam" ->
+            bindLambda ctx f args
+        | StxIdent(id, _) :: args when id.Name = "def" ->
+            bindDefinition ctx f args
+        | StxIdent(id, _) :: args when id.Name = "quot" ->
+            bindQuotation f args
+        | StxIdent(id, _) :: args when id.Name = "stx" ->
+            bindSyntaxQuotation f args
         | applicant :: args ->
-            match applicant with
-            | StxIdent(id, _, sctx) ->
-                // FIXME: we should look at the _binding_ of the resolved ID here
-                //        not just the plain symbol.
-                match resolve id sctx with
-                | "lam" -> bindLambda f args
-                | "def" -> bindDefinition f args
-                | "def-syn" -> bindSyntaxDefinition f args
-                | "quot" -> bindQuotation f args
-                | "stx" -> bindSyntaxQuotation f args
-                | _ -> bindSimpleApp f applicant args
-            | _ -> bindSimpleApp f applicant args
+            bindSimpleApp ctx f applicant args
+    | StxClosure(stx, env) -> bindOne ctx stx
 
-and private bindSyntaxDefinition f args =
-    match args with
-    | [ StxIdent(id, _, idCtx); rule ] ->
-        // FIXME: We should parse the rule here. WE return either Ok(None) or Error
-        failwith "Not implemented: syntax definitions are not yet supported."
-    | _ -> Error ($"Invalid `def-syn` form %A{args}", f.Syntax.Range)
-
-and private bindSimpleApp f applicant args =
-    bindOne applicant
+and private bindSimpleApp ctx f applicant args =
+    bindOne ctx applicant
     |> Result.bind (fun called ->
         args
-        |> List.map bindOne
+        |> List.map (bindOne ctx)
         |> Utils.accumulateResults
         |> Result.bind (fun boundArgs ->
             match called with
@@ -138,28 +136,33 @@ and private bindSimpleApp f applicant args =
                 App(called, (List.choose id boundArgs)) |> Some |> Ok
             | None -> Error ($"Invalid function in application: has no value.", f.Syntax.Range)))
 
-and private bindLambda f args =
+and private bindLambda ctx f args =
     match args with
-    | [ StxIdent(id, _, idctx); body ] ->
-        match bindOne body with 
+    | [ StxIdent(id, _); body ] ->
+        let argStorage = freshStorage id.Name
+        let bodyCtx =
+            BinderCtx.withParent ctx
+        BinderCtx.extend id argStorage bodyCtx
+        match bindOne bodyCtx body with 
         | Ok(Some boundBody) ->
-            Fun(resolve id idctx, boundBody) |> Some |> Ok
+            Fun(argStorage, boundBody) |> Some |> Ok
         | Ok None ->
             Error ($"Body has no value.", f.Syntax.Range)
         | e -> e
     | _ -> Error ($"Invalid lambda form %A{args}", f.Syntax.Range)
 
-and private bindDefinition f args =
+and private bindDefinition ctx f args =
     match args with
-    | [ StxIdent(id, _, idCtx); body ] ->
-        match bindOne body with
+    | [ StxIdent(id, _); body ] ->
+        match bindOne ctx body with
         | Ok(Some boundBody) ->
-            Def((resolve id idCtx), boundBody) |> Some |> Result.Ok
+            let newStore = freshStorage id.Name
+            BinderCtx.extend id newStore ctx
+            Def(newStore, boundBody) |> Some |> Result.Ok
         | Ok None ->
             Error ($"Invalid `def` body: has no value.", f.Syntax.Range)
         | e -> e
     | _ -> Error ($"Invalid `def` form %A{args}", f.Syntax.Range)
-
 
 and private bindQuotation f args =
     match args with
@@ -176,7 +179,7 @@ let rec private bindSequence (ctx: BindingContext) (exprs: Stx list) : Result<Bo
     match exprs with
     | [] -> Ok []
     | stx :: rest ->
-        let bound = bindOne stx
+        let bound = bindOne ctx stx
         let next = bindSequence ctx rest
         match bound with
         | Ok(Some b) ->
@@ -186,5 +189,5 @@ let rec private bindSequence (ctx: BindingContext) (exprs: Stx list) : Result<Bo
 
 /// Main binder entry point. Runs the binder over each input item
 let public bind =
-    let ctx = BindingContext.empty
+    let ctx = BinderCtx.empty
     bindSequence ctx

@@ -12,17 +12,29 @@ open Mutton.Syntax
 /// provenance. This is used for hygiene and name resolution.
 type Stamp = int
 
-/// The context metadata attached to a given syntax item.
-type public StxContext =
-    | Unit of Stamp
+type Ident = { Name: string; Stamp: Stamp }
 
 /// A node in the illuminated syntax tree
 type public Stx =
-    | StxLiteral of Literal * StxContext
-    | StxIdent of string * Symbol * StxContext
-    | StxForm of Stx list * Form * StxContext
+    | StxLiteral of Literal
+    | StxIdent of Ident * Symbol
+    | StxForm of Stx list * Form
+    | StxClosure of Stx * StxEnv
 
-let mutable private stamp = ref 0
+// A syntax environment maps names to syntax bindings.
+and StxEnv = Map<string, StxBinding>
+
+// Syntax bindings are either to identifiers, or syntax items
+and StxBinding =
+    | Var of Ident
+    | Macro of Transformer
+
+// A tranformer takes a syntax item and its use-site environment, and produces a
+// new syntax item. This is the basis of macro expansion
+and Transformer = Stx -> StxEnv -> Stx
+
+/// A stamp marking a distinct syntax context.
+let mutable private stamp = ref 1
 
 /// Generate a fresh stamp for tracking syntax provenance
 let newStamp () =
@@ -35,18 +47,13 @@ let rec private illumExpr stamp (exp: Expression) : Stx =
     match exp with
     | Symbol s ->
         // FIXME: We shouldn't have to call `.Value` here, or we should handle it.
-        StxIdent(s.Value.Value, s, StxContext.Unit stamp)
-    | Literal l -> StxLiteral(l, StxContext.Unit stamp)
-    | Form f -> StxForm((Seq.map (illumExpr stamp) f.Body |> List.ofSeq), f, StxContext.Unit stamp)
+        let name = s.Value.Value
+        StxIdent({ Name = name; Stamp = stamp }, s)
+    | Literal l -> StxLiteral l
+    | Form f -> StxForm(Seq.map (illumExpr stamp) f.Body |> List.ofSeq, f)
 
 /// Illuminate the given program `tree`.
 let public illum (tree: Program) =
-    let initialStamp = newStamp ()
-    tree.Body |> Seq.map (illumExpr initialStamp) |> List.ofSeq
-
-/// Resolve the identifier in the given syntax context. Returns the canonical
-/// form of this identifier at that soruce location.
-let rec public resolve id =
-    function
-    | _ -> id
-
+    // Fresh source programs are given the stamp 0. This will not collide
+    // with any synthetic stamps produced later by `newStamp`.
+    tree.Body |> Seq.map (illumExpr 0) |> List.ofSeq
