@@ -1,8 +1,9 @@
 /// Syntax Illumination
 ///
-/// Covnerts a raw `Syntax` tree into an "illuminated" form where each syntax
-/// item has an attached `SyntaxContext`. Illuminated trees are used by the#
-/// later `Expand` and `Bind` phases.
+/// Converts a raw `Syntax` tree into an "illuminated" form where each syntax
+/// item contains a marker used to indicate its "source provenance". This
+/// information is used by the later `Expand` and `Bind` phases to perform
+/// hygienic macro expansion and name resolution.
 module Mutton.Illuminate
 
 open Mutton.Syntax
