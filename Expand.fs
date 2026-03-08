@@ -39,43 +39,132 @@ let newStamp () =
 let rename (env: StxEnv) (id: Ident) : StxEnv =
     Map.add id.Name (Var { Name = id.Name; Stamp = newStamp() }) env
 
-/// Expand any syntax mutations (macros) within the given tree. Returns the
-/// input tree with all syntax lowered.
-let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx =
+// ----------- Pattern Matching and Template Application -----------------
+
+/// A pre-parsed macro rule: a list of pattern-variable identifiers and the
+/// template to substitute into when the rule matches.
+type MacroRule = { PatArgs: Ident list; Template: Stx }
+
+/// Try to match pattern arguments against call arguments.
+/// Each pattern variable identifier binds to the corresponding call argument,
+/// wrapped in a use-site closure for hygiene.
+/// Returns Some bindings if successful, None if arity doesn't match.
+let private matchPatternArgs (rule: MacroRule) (callArgs: Stx list) (useEnv: StxEnv) : Map<string, Stx> option =
+    if List.length rule.PatArgs <> List.length callArgs then None
+    else
+        List.zip rule.PatArgs callArgs
+        |> List.fold (fun acc (id, arg) ->
+            match acc with
+            | None -> None
+            | Some bindings -> Some (Map.add id.Name (StxClosure(arg, useEnv)) bindings)
+        ) (Some Map.empty)
+
+/// Apply variable substitution bindings to a syntax template.
+let rec private applyTemplate (template: Stx) (bindings: Map<string, Stx>) : Stx =
+    match template with
+    | StxIdent(id, _) ->
+        match Map.tryFind id.Name bindings with
+        | Some stx -> stx
+        | None -> template
+    | StxLiteral _ -> template
+    | StxForm(items, f) ->
+        StxForm(List.map (fun item -> applyTemplate item bindings) items, f)
+    | StxClosure(stx, env) ->
+        StxClosure(applyTemplate stx bindings, env)
+
+// ----------- Macro Expansion -----------------
+
+/// Expand any syntax mutations (macros) within the given tree. Returns an
+/// optional expanded form (None for definitional forms like def-syn) and the
+/// (possibly updated) syntax environment.
+let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx option * StxEnv =
     match stx with
-    | StxLiteral _ -> stx
+    | StxLiteral _ -> (Some stx, stxEnv)
     | StxIdent(id, sym) ->
         let resolved = resolve id stxEnv
         match resolved with
-        | Var _ -> stx
+        | Var _ -> (Some stx, stxEnv)
         | x -> failwith $"Unexpected non-variable syntax binding for identifier {id.Name}: %A{resolved}"
-    | StxForm ([], _) -> stx
+    | StxForm ([], _) -> (Some stx, stxEnv)
     | StxForm (head :: args, f) ->
         match head with
         | StxIdent(id, sym) ->
             let resolved = resolve id stxEnv
             match resolved with
             | Macro transformer ->
-                transformer stx stxEnv
-            | Quot | Stx -> stx
-            | Lam -> expandLam head args f stxEnv
+                (Some (transformer stx stxEnv), stxEnv)
+            | Quot | Stx -> (Some stx, stxEnv)
+            | Lam -> (Some (expandLam head args f stxEnv), stxEnv)
             | Def -> failwith "def not implemented, needs to modify 'outer' syntax environment"
-            | DefSyn -> failwith "def-syn not implemented. Needs to modify the environment to add the transfomer"
+            | DefSyn -> expandDefSyn args stxEnv
             | Var _ ->
                 // These are not macros, so we just recursively expand the subforms.
-                StxForm(List.map (fun arg -> expand arg stxEnv) (head :: args), f)
+                let expanded = StxForm(List.map (expandOne stxEnv) (head :: args), f)
+                (Some expanded, stxEnv)
         | _ ->
-            StxForm(List.map (fun arg -> expand arg stxEnv) (head :: args), f)
+            let expanded = StxForm(List.map (expandOne stxEnv) (head :: args), f)
+            (Some expanded, stxEnv)
     | StxClosure(stx, env) ->
-         expand stx env
+        let (result, _) = expand stx env
+        (result, stxEnv)
+
+and private expandOne (stxEnv: StxEnv) (stx: Stx) : Stx =
+    match expand stx stxEnv with
+    | Some result, _ -> result
+    | None, _ -> failwith "def-syn not valid in expression position"
 
 and expandLam head args low stxEnv =
     match args with
     | StxIdent(id, s) :: body ->
         let innerEnv = rename stxEnv id
-        // This might need to become some kind of fold if expand starts returning
-        // a modified environemtn _as well_ as the expanded syntax (for defs).
-        let expandedBody = List.map (fun arg -> expand arg innerEnv) body
+        let expandedBody = List.map (expandOne innerEnv) body
         StxForm(head :: StxIdent(id, s) :: expandedBody, low)
     | _ -> failwith "Invalid syntax for lam: expected (lam <id> <body>)"
+
+/// Parse a `def-syn` form and return an updated syntax environment containing
+/// the newly defined macro transformer.
+and private expandDefSyn (args: Stx list) (stxEnv: StxEnv) : Stx option * StxEnv =
+    match args with
+    | StxIdent(macroName, _) :: ruleStxs ->
+        let rules = List.map parseRule ruleStxs
+        let transformer = makeSynTransformer rules stxEnv macroName.Name
+        let newEnv = Map.add macroName.Name (Macro transformer) stxEnv
+        (None, newEnv)
+    | _ -> failwith "Invalid def-syn form: expected (def-syn <name> <rule>...)"
+
+/// Parse a single syntax rule stx into a `MacroRule`, failing immediately if
+/// the rule shape is invalid.
+and private parseRule (ruleStx: Stx) : MacroRule =
+    match ruleStx with
+    | StxForm([StxForm(_ :: patArgs, _); template], _) ->
+        // Extract the identifier from each pattern argument, failing if any is not an identifier
+        let idents = patArgs |> List.mapi (fun i pat ->
+            match pat with
+            | StxIdent(id, _) -> id
+            | _ -> failwith $"Invalid pattern in macro rule at position {i}: expected an identifier, got %A{pat}")
+        { PatArgs = idents; Template = template }
+    | _ -> failwith $"Invalid macro rule: expected ((name pat...) template), got %A{ruleStx}"
+
+/// Build a macro transformer from a list of pre-parsed macro rules and the
+/// definition-time environment. The transformer performs hygienic
+/// pattern-matching and template substitution.
+and private makeSynTransformer (rules: MacroRule list) (defEnv: StxEnv) (macroName: string) : Transformer =
+    fun (callStx: Stx) (useEnv: StxEnv) ->
+        match callStx with
+        | StxForm(_ :: callArgs, _) ->
+            let tryRule (rule: MacroRule) =
+                match matchPatternArgs rule callArgs useEnv with
+                | Some bindings ->
+                    // Substitute pattern variables into template, then close
+                    // over the definition-time environment for hygiene.
+                    let substituted = applyTemplate rule.Template bindings
+                    Some (StxClosure(substituted, defEnv))
+                | None -> None
+            match List.tryPick tryRule rules with
+            | Some expanded ->
+                match expand expanded useEnv with
+                | Some result, _ -> result
+                | None, _ -> failwith $"macro '{macroName}': def-syn in template is not valid"
+            | None -> failwith $"No matching rule for macro '{macroName}'"
+        | _ -> failwith $"Invalid macro call form for '{macroName}'"
 
