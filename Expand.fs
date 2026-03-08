@@ -11,6 +11,14 @@ type private Transform =
     | Def
     | Var of string * Symbol * StxContext
 
+let mutable private idSuffix = ref 0
+
+/// Generate a fresh symbol from the given ID hint
+let public freshId (idHint: Symbol) =
+    let suffix = System.Threading.Interlocked.Increment(idSuffix)
+    let prefix = idHint.Value |> Option.defaultValue "tmp"
+    $"{prefix}.{suffix}"
+
 /// Expand a single item in the given context.
 ///
 /// This mimics the behaviour of the binder in recognising our special forms.
@@ -30,21 +38,23 @@ let rec private expandInCtx (ctx: Map<string, Transform>) (stx: Stx) : Stx * Map
                 | Some(Fun) ->
                     match rands with
                     | StxIdent(argId, argSym, argSctx) :: body ->
-                        let freshName = freshId argSym
-                        let fresh = Var(freshName, argSym, StxContext.Unit)
-                        let bodyCtx = Map.add (resolve argId argSctx) fresh ctx
-                        let body = List.mapFold (expandInCtx) bodyCtx body |> fst
-                        (StxForm(rator :: StxIdent(freshName, argSym, StxContext.Unit) :: body, sForm, fSCtx), ctx)
+                        // let freshName = freshId argSym
+                        // let fresh = Var(freshName, argSym, StxContext.Unit)
+                        // let bodyCtx = Map.add (resolve argId argSctx) fresh ctx
+                        // let body = List.mapFold (expandInCtx) bodyCtx body |> fst
+                        // (StxForm(rator :: StxIdent(freshName, argSym, StxContext.Unit) :: body, sForm, fSCtx), ctx)
+                        failwith "Not implemented: lambda expansion is not yet supported."
                     | _ -> failwithf "Invalid lambda form %A" sForm
                 | Some(Quote) -> (stx, ctx)
                 | Some(Def) ->
                     match rands with
                     | [ StxIdent(defId, defSym, defSctx); expr ] ->
-                        let freshName = freshId defSym
-                        let fresh = Var(freshName, defSym, StxContext.Unit)
-                        let body, ctx = expandInCtx ctx expr
-                        let ctx = Map.add (resolve defId defSctx) fresh ctx
-                        (StxForm([ rator; StxIdent(freshName, defSym, StxContext.Unit); body ], sForm, fSCtx), ctx)
+                        // let freshName = freshId defSym
+                        // let fresh = Var(freshName, defSym, StxContext.Unit)
+                        // let body, ctx = expandInCtx ctx expr
+                        // let ctx = Map.add (resolve defId defSctx) fresh ctx
+                        // (StxForm([ rator; StxIdent(freshName, defSym, StxContext.Unit); body ], sForm, fSCtx), ctx)
+                        failwith "Not implemented: def expansion is not yet supported."
                     | _ -> failwithf "ERR:%A Invalid def form %A" sForm.Syntax.Range sForm
                 | Some(Var(idNew, symNew, ctxNew)) ->
                     (StxForm(StxIdent(idNew, symNew, ctxNew) :: List.map (expandInCtx ctx >> fst) rands, sForm, fSCtx),

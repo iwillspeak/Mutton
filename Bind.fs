@@ -1,7 +1,6 @@
 module Mutton.Binder
 
 open Mutton.Illuminate
-open Mutton.Syntax
 
 module Utils =
 
@@ -16,6 +15,10 @@ module Utils =
 
         loop [] results
 
+/// A named storage location with a unique numeric suffix for scope tracking.
+/// The integer disambiguates variables with the same base name in different scopes.
+type Storage = string * int
+
 /// A simple s-expression datum. This is the runtime representation of
 /// quoted syntax — compiler metadata (scope IDs, CST pointers) is stripped
 /// away, leaving only the structural content.
@@ -24,17 +27,6 @@ type Datum =
     | DSym of string
     | DList of Datum list
 
-/// Strip an illuminated syntax node down to a plain datum, discarding all
-/// compiler metadata (scope IDs, CST node references).
-let rec private strip (stx: Stx) : Datum =
-    match stx with
-    | StxLiteral(l, _) ->
-        match l.Value with
-        | Some n -> DNum n
-        | None -> DSym "#err"
-    | StxIdent(id, _, _) -> DSym id
-    | StxForm(items, _, _) -> DList(List.map strip items)
-
 /// Bound Expression Node
 ///
 /// Each variant represents a different kind of bound node available in the
@@ -42,7 +34,7 @@ let rec private strip (stx: Stx) : Datum =
 /// than the syntactic one. Any symbols in the program are resolved to their
 /// appropriate storage locations.
 type Bound =
-    | Var of string
+    | Var of Storage
     | Def of string * Bound
     | App of Bound * Bound list
     | Fun of string * Bound
@@ -84,6 +76,24 @@ module private BindingContext =
 
 // ── Binding ────────────────────────────────────────────────────────────────
 
+let mutable private varSuffix = ref 0
+
+/// Generate a fresh storage location for the given variable name
+let private freshStorage (name: string) : Storage =
+    let suffix = System.Threading.Interlocked.Increment(varSuffix)
+    (name, suffix)
+
+/// Strip an illuminated syntax node down to a plain datum, discarding all
+/// compiler metadata (scope IDs, CST node references).
+let rec private strip (stx: Stx) : Datum =
+    match stx with
+    | StxLiteral(l, _) ->
+        match l.Value with
+        | Some n -> DNum n
+        | None -> DSym "#err"
+    | StxIdent(id, _, _) -> DSym id
+    | StxForm(items, _, _) -> DList(List.map strip items)
+
 /// Bind a single expression
 let rec private bindOne =
     function
@@ -91,7 +101,7 @@ let rec private bindOne =
         match l.Value with
         | Some n -> Quot(DNum n) |> Some |> Result.Ok
         | None -> ($"Invalid literal %A{l}", l.Syntax.Range) |> Result.Error
-    | StxIdent(id, _, sctx) -> Var(resolve id sctx) |> Some |> Result.Ok
+    | StxIdent(id, _, sctx) -> Var(freshStorage (resolve id sctx)) |> Some |> Result.Ok
     | StxForm(items, f, _) ->
         match items with
         | [] -> Error ($"No applicant in application form.", f.Syntax.Range)
@@ -103,10 +113,18 @@ let rec private bindOne =
                 match resolve id sctx with
                 | "lam" -> bindLambda f args
                 | "def" -> bindDefinition f args
+                | "def-syn" -> bindSyntaxDefinition f args
                 | "quot" -> bindQuotation f args
                 | "stx" -> bindSyntaxQuotation f args
                 | _ -> bindSimpleApp f applicant args
             | _ -> bindSimpleApp f applicant args
+
+and private bindSyntaxDefinition f args =
+    match args with
+    | [ StxIdent(id, _, idCtx); rule ] ->
+        // FIXME: We should parse the rule here. WE return either Ok(None) or Error
+        failwith "Not implemented: syntax definitions are not yet supported."
+    | _ -> Error ($"Invalid `def-syn` form %A{args}", f.Syntax.Range)
 
 and private bindSimpleApp f applicant args =
     bindOne applicant
