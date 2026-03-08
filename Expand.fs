@@ -41,26 +41,22 @@ let rename (env: StxEnv) (id: Ident) : StxEnv =
 
 // ----------- Pattern Matching and Template Application -----------------
 
-/// A pre-parsed macro rule: a list of pattern-variable arguments and the
+/// A pre-parsed macro rule: a list of pattern-variable identifiers and the
 /// template to substitute into when the rule matches.
-type MacroRule = { PatArgs: Stx list; Template: Stx }
+type MacroRule = { PatArgs: Ident list; Template: Stx }
 
 /// Try to match pattern arguments against call arguments.
-/// Pattern variables (StxIdent) bind to the corresponding call argument,
+/// Each pattern variable identifier binds to the corresponding call argument,
 /// wrapped in a use-site closure for hygiene.
-/// Returns Some bindings if successful, None if arity or pattern mismatch.
+/// Returns Some bindings if successful, None if arity doesn't match.
 let private matchPatternArgs (rule: MacroRule) (callArgs: Stx list) (useEnv: StxEnv) : Map<string, Stx> option =
     if List.length rule.PatArgs <> List.length callArgs then None
     else
         List.zip rule.PatArgs callArgs
-        |> List.fold (fun acc (pat, arg) ->
+        |> List.fold (fun acc (id, arg) ->
             match acc with
             | None -> None
-            | Some bindings ->
-                match pat with
-                | StxIdent(id, _) ->
-                    Some (Map.add id.Name (StxClosure(arg, useEnv)) bindings)
-                | _ -> None
+            | Some bindings -> Some (Map.add id.Name (StxClosure(arg, useEnv)) bindings)
         ) (Some Map.empty)
 
 /// Apply variable substitution bindings to a syntax template.
@@ -141,12 +137,12 @@ and private expandDefSyn (args: Stx list) (stxEnv: StxEnv) : Stx option * StxEnv
 and private parseRule (ruleStx: Stx) : MacroRule =
     match ruleStx with
     | StxForm([StxForm(_ :: patArgs, _); template], _) ->
-        // Validate that every pattern argument is an identifier (variable pattern)
-        patArgs |> List.iteri (fun i pat ->
+        // Extract the identifier from each pattern argument, failing if any is not an identifier
+        let idents = patArgs |> List.mapi (fun i pat ->
             match pat with
-            | StxIdent _ -> ()
+            | StxIdent(id, _) -> id
             | _ -> failwith $"Invalid pattern in macro rule at position {i}: expected an identifier, got %A{pat}")
-        { PatArgs = patArgs; Template = template }
+        { PatArgs = idents; Template = template }
     | _ -> failwith $"Invalid macro rule: expected ((name pat...) template), got %A{ruleStx}"
 
 /// Build a macro transformer from a list of pre-parsed macro rules and the
