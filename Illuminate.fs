@@ -26,20 +26,17 @@ and StxEnv = Map<string, StxBinding>
 
 // Syntax bindings are either to identifiers, or syntax items
 and StxBinding =
+    | Lam
+    | Def
+    | DefSyn
+    | Quot
+    | Stx
     | Var of Ident
     | Macro of Transformer
 
 // A tranformer takes a syntax item and its use-site environment, and produces a
 // new syntax item. This is the basis of macro expansion
 and Transformer = Stx -> StxEnv -> Stx
-
-/// A stamp marking a distinct syntax context.
-let mutable private stamp = ref 1
-
-/// Generate a fresh stamp for tracking syntax provenance
-let newStamp () =
-    let s = System.Threading.Interlocked.Increment(stamp)
-    s
 
 /// Illuminate a single expression. This attaches syntax context to atoms, and
 /// recurses to process the elements of a form.

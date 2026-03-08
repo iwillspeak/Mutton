@@ -18,7 +18,13 @@ module Utils =
 
 /// A named storage location with a unique numeric suffix for scope tracking.
 /// The integer disambiguates variables with the same base name in different scopes.
-type Storage = string * int
+[<StructuredFormatDisplay("{DisplayText}")>]
+type Storage =
+    | S of string * int
+    member private this.DisplayText =
+        let (S (name, suffix)) = this
+        sprintf "%s.%d" name suffix
+    override this.ToString() = this.DisplayText
 
 /// A simple s-expression datum. This is the runtime representation of
 /// quoted syntax — compiler metadata (scope IDs, CST pointers) is stripped
@@ -77,7 +83,7 @@ module private BinderCtx =
         | false, _->
             match ctx.Parent with
             | Some parent -> resolve ident parent
-            | None -> ident.Name, 0
+            | None -> S(ident.Name, 0)
 
 // ── Binding ────────────────────────────────────────────────────────────────
 
@@ -86,7 +92,7 @@ let mutable private varSuffix = ref 0
 /// Generate a fresh storage location for the given variable name
 let private freshStorage (name: string) : Storage =
     let suffix = System.Threading.Interlocked.Increment(varSuffix)
-    (name, suffix)
+    S(name, suffix)
 
 /// Strip an illuminated syntax node down to a plain datum, discarding all
 /// compiler metadata (scope IDs, CST node references).
@@ -179,6 +185,7 @@ let rec private bindSequence (ctx: BindingContext) (exprs: Stx list) : Result<Bo
     match exprs with
     | [] -> Ok []
     | stx :: rest ->
+        let stx = Expand.expand stx (Map.empty)
         let bound = bindOne ctx stx
         let next = bindSequence ctx rest
         match bound with
