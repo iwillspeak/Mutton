@@ -51,11 +51,11 @@ module Main =
             prog.Syntax
             |> Debug.debugDump (Debug.mappedFormatter SyntaxKinds.greenToAst)
 
-        let stx, scopes = Illuminate.illum prog
+        let stx = Illuminate.illum prog
         if debugOutput.showIlluminated then
             printfn "*~> %A" stx
 
-        let bound = Binder.bind scopes stx
+        let bound = Binder.bind stx
         if debugOutput.showBound then
             printfn "%%~> %A" bound
 
@@ -100,5 +100,5 @@ module Main =
                             repl "| " prog_so_far
 
             repl "> " ""
-
+        
         0
