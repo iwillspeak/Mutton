@@ -37,12 +37,12 @@ let public illum (tree: Program) =
 /// form of this identifier at that soruce location.
 let rec public resolve id =
     function
-    | Remapped (before, after, parent) ->
+    | Remapped(before, after, parent) ->
         if before = id then
             resolve after parent
         else
             resolve id parent
-    | Marked (_, parent) -> resolve id parent
+    | Marked(_, parent) -> resolve id parent
     | Unit -> id
 
 

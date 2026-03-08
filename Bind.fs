@@ -3,6 +3,19 @@ module Mutton.Binder
 open Mutton.Illuminate
 open Mutton.Syntax
 
+module Utils =
+
+    /// Pull the `Ok` values out of a list of `Result`s, or return the first `Error` if any are present.
+    let accumulateResults (results: Result<'a, 'e> list) : Result<'a list, 'e> =
+        let rec loop acc = function
+            | [] -> Ok (List.rev acc)
+            | r :: rs ->
+                match r with
+                | Ok v -> loop (v :: acc) rs
+                | Error e -> Error e
+
+        loop [] results
+
 /// A simple s-expression datum. This is the runtime representation of
 /// quoted syntax — compiler metadata (scope IDs, CST pointers) is stripped
 /// away, leaving only the structural content.
@@ -35,7 +48,39 @@ type Bound =
     | Fun of string * Bound
     | Stx of Stx
     | Quot of Datum
-    | Error of string
+
+/// Errors that can occur during binding. These are simple string messages with
+/// attached source ranges. In a more complex implementation, these would likely
+/// be richer structures with error codes, suggestions, etc.
+type BinderError = string * Firethorn.TextRange
+
+/// A simple binding context. This is used to resolve identifiers to their
+/// bound names. In a more complex language, this would need to be extended to
+/// support multiple namespaces, modules, etc.
+type private BindingContext =
+    {
+        Parent: BindingContext option
+        Bindings: Map<string, string>
+    }
+
+module private BindingContext =
+
+    /// Create an empty binding context
+    let empty = { Parent = None; Bindings = Map.empty }
+
+    /// Extend a binding context with a new name mapping
+    let extend name bound ctx =
+        { ctx with Bindings = ctx.Bindings.Add(name, bound) }
+
+    /// Resolve a name in the given context, searching parent contexts if
+    /// necessary. Returns the resolved name or the original name if not found.
+    let rec resolve name ctx =
+        match ctx.Bindings.TryFind(name) with
+        | Some bound -> bound
+        | None ->
+            match ctx.Parent with
+            | Some parent -> resolve name parent
+            | None -> name
 
 // ── Binding ────────────────────────────────────────────────────────────────
 
@@ -44,51 +89,84 @@ let rec private bindOne =
     function
     | StxLiteral(l, _) ->
         match l.Value with
-        | Some n -> Quot(DNum n)
-        | None -> Error $"Invalid literal %A{l}"
-    | StxIdent(id, _, sctx) -> Var(resolve id sctx)
-    | StxForm(items, _, _) ->
+        | Some n -> Quot(DNum n) |> Some |> Result.Ok
+        | None -> ($"Invalid literal %A{l}", l.Syntax.Range) |> Result.Error
+    | StxIdent(id, _, sctx) -> Var(resolve id sctx) |> Some |> Result.Ok
+    | StxForm(items, f, _) ->
         match items with
-        | [] -> Error "No applicant in application form."
+        | [] -> Error ($"No applicant in application form.", f.Syntax.Range)
         | applicant :: args ->
             match applicant with
             | StxIdent(id, _, sctx) ->
                 // FIXME: we should look at the _binding_ of the resolved ID here
                 //        not just the plain symbol.
                 match resolve id sctx with
-                | "lam" -> bindLambda args
-                | "def" -> bindDefinition args
-                | "quot" -> bindQuotation args
-                | "stx" -> bindSyntaxQuotation args
-                | _ -> bindSimpleApp applicant args
-            | _ -> bindSimpleApp applicant args
+                | "lam" -> bindLambda f args
+                | "def" -> bindDefinition f args
+                | "quot" -> bindQuotation f args
+                | "stx" -> bindSyntaxQuotation f args
+                | _ -> bindSimpleApp f applicant args
+            | _ -> bindSimpleApp f applicant args
 
-and private bindSimpleApp applicant args =
-    let called = bindOne applicant
-    let args = List.map bindOne args
-    App(called, args)
+and private bindSimpleApp f applicant args =
+    bindOne applicant
+    |> Result.bind (fun called ->
+        args
+        |> List.map bindOne
+        |> Utils.accumulateResults
+        |> Result.bind (fun boundArgs ->
+            match called with
+            | Some called ->
+                App(called, (List.choose id boundArgs)) |> Some |> Ok
+            | None -> Error ($"Invalid function in application: has no value.", f.Syntax.Range)))
 
-and private bindLambda args =
+and private bindLambda f args =
     match args with
-    | [ StxIdent(id, _, idctx); body ] -> Fun((resolve id idctx), (bindOne body))
-    | _ -> Error $"Invalid lambda form %A{args}"
+    | [ StxIdent(id, _, idctx); body ] ->
+        match bindOne body with 
+        | Ok(Some boundBody) ->
+            Fun(resolve id idctx, boundBody) |> Some |> Ok
+        | Ok None ->
+            Error ($"Body has no value.", f.Syntax.Range)
+        | e -> e
+    | _ -> Error ($"Invalid lambda form %A{args}", f.Syntax.Range)
 
-and private bindDefinition args =
+and private bindDefinition f args =
     match args with
     | [ StxIdent(id, _, idCtx); body ] ->
-        Def((resolve id idCtx), (bindOne body))
-    | _ -> Error $"Invalid `def` form %A{args}"
+        match bindOne body with
+        | Ok(Some boundBody) ->
+            Def((resolve id idCtx), boundBody) |> Some |> Result.Ok
+        | Ok None ->
+            Error ($"Invalid `def` body: has no value.", f.Syntax.Range)
+        | e -> e
+    | _ -> Error ($"Invalid `def` form %A{args}", f.Syntax.Range)
 
 
-and private bindQuotation args =
+and private bindQuotation f args =
     match args with
-    | [ form ] -> Quot(strip form)
-    | _ -> Error $"Invalid `quot` form: %A{args}"
+    | [ form ] -> Quot(strip form) |> Some |> Result.Ok
+    | _ -> Error ($"Invalid `quot` form: %A{args}", f.Syntax.Range)
 
-and private bindSyntaxQuotation args =
+and private bindSyntaxQuotation f args =
     match args with
-    | [ form ] -> Stx form
-    | _ -> Error $"Invalid `stx` form: %A{args}"
+    | [ form ] -> Stx form |> Some |> Result.Ok
+    | _ -> Error ($"Invalid `stx` form: %A{args}", f.Syntax.Range)
+
+///
+let rec private bindSequence (ctx: BindingContext) (exprs: Stx list) : Result<Bound list, string * Firethorn.TextRange> =
+    match exprs with
+    | [] -> Ok []
+    | stx :: rest ->
+        let bound = bindOne stx
+        let next = bindSequence ctx rest
+        match bound with
+        | Ok(Some b) ->
+            next |> Result.map (fun bs -> b :: bs)
+        | Ok None -> next
+        | Error e -> Error e
 
 /// Main binder entry point. Runs the binder over each input item
-let public bind = List.map bindOne
+let public bind =
+    let ctx = BindingContext.empty
+    bindSequence ctx
