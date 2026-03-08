@@ -41,14 +41,18 @@ let rename (env: StxEnv) (id: Ident) : StxEnv =
 
 // ----------- Pattern Matching and Template Application -----------------
 
+/// A pre-parsed macro rule: a list of pattern-variable arguments and the
+/// template to substitute into when the rule matches.
+type MacroRule = { PatArgs: Stx list; Template: Stx }
+
 /// Try to match pattern arguments against call arguments.
 /// Pattern variables (StxIdent) bind to the corresponding call argument,
 /// wrapped in a use-site closure for hygiene.
 /// Returns Some bindings if successful, None if arity or pattern mismatch.
-let private matchPatternArgs (patArgs: Stx list) (callArgs: Stx list) (useEnv: StxEnv) : Map<string, Stx> option =
-    if List.length patArgs <> List.length callArgs then None
+let private matchPatternArgs (rule: MacroRule) (callArgs: Stx list) (useEnv: StxEnv) : Map<string, Stx> option =
+    if List.length rule.PatArgs <> List.length callArgs then None
     else
-        List.zip patArgs callArgs
+        List.zip rule.PatArgs callArgs
         |> List.fold (fun acc (pat, arg) ->
             match acc with
             | None -> None
@@ -125,30 +129,41 @@ and expandLam head args low stxEnv =
 /// the newly defined macro transformer.
 and private expandDefSyn (args: Stx list) (stxEnv: StxEnv) : Stx option * StxEnv =
     match args with
-    | StxIdent(macroName, _) :: rules ->
+    | StxIdent(macroName, _) :: ruleStxs ->
+        let rules = List.map parseRule ruleStxs
         let transformer = makeSynTransformer rules stxEnv macroName.Name
         let newEnv = Map.add macroName.Name (Macro transformer) stxEnv
         (None, newEnv)
     | _ -> failwith "Invalid def-syn form: expected (def-syn <name> <rule>...)"
 
-/// Build a macro transformer from a list of syntax rules and the
+/// Parse a single syntax rule stx into a `MacroRule`, failing immediately if
+/// the rule shape is invalid.
+and private parseRule (ruleStx: Stx) : MacroRule =
+    match ruleStx with
+    | StxForm([StxForm(_ :: patArgs, _); template], _) ->
+        // Validate that every pattern argument is an identifier (variable pattern)
+        patArgs |> List.iteri (fun i pat ->
+            match pat with
+            | StxIdent _ -> ()
+            | _ -> failwith $"Invalid pattern in macro rule at position {i}: expected an identifier, got %A{pat}")
+        { PatArgs = patArgs; Template = template }
+    | _ -> failwith $"Invalid macro rule: expected ((name pat...) template), got %A{ruleStx}"
+
+/// Build a macro transformer from a list of pre-parsed macro rules and the
 /// definition-time environment. The transformer performs hygienic
 /// pattern-matching and template substitution.
-and private makeSynTransformer (rules: Stx list) (defEnv: StxEnv) (macroName: string) : Transformer =
+and private makeSynTransformer (rules: MacroRule list) (defEnv: StxEnv) (macroName: string) : Transformer =
     fun (callStx: Stx) (useEnv: StxEnv) ->
         match callStx with
         | StxForm(_ :: callArgs, _) ->
-            let tryRule rule =
-                match rule with
-                | StxForm([StxForm(_ :: patArgs, _); template], _) ->
-                    match matchPatternArgs patArgs callArgs useEnv with
-                    | Some bindings ->
-                        // Substitute pattern variables into template, then close
-                        // over the definition-time environment for hygiene.
-                        let substituted = applyTemplate template bindings
-                        Some (StxClosure(substituted, defEnv))
-                    | None -> None
-                | _ -> None
+            let tryRule (rule: MacroRule) =
+                match matchPatternArgs rule callArgs useEnv with
+                | Some bindings ->
+                    // Substitute pattern variables into template, then close
+                    // over the definition-time environment for hygiene.
+                    let substituted = applyTemplate rule.Template bindings
+                    Some (StxClosure(substituted, defEnv))
+                | None -> None
             match List.tryPick tryRule rules with
             | Some expanded ->
                 match expand expanded useEnv with
