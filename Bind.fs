@@ -69,7 +69,9 @@ module private BinderCtx =
 
     /// Extend a binding context with a new name mapping
     let extend ident bound ctx =
-        ctx.Bindings.Add(ident, bound)
+        // Use indexer assignment to avoid exceptions on duplicate keys.
+        // This allows redefinition in the same scope without crashing.
+        ctx.Bindings.[ident] <- bound
 
     /// Create a new child context with the given parent
     let withParent parent =

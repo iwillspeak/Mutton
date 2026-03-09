@@ -9,13 +9,13 @@ open Mutton.Syntax
 let close (stx: Stx) (defEnv: StxEnv) : Stx =
     StxClosure(stx, defEnv)
 
-/// Resolve a given identifer in the given syntax environment
+/// Resolve a given identifier in the given syntax environment
 let resolve (id: Ident) (stxEnv: StxEnv) : StxBinding =
     // TODO: Does the syntax environment want to resolve names, or identifiers?
     match stxEnv.TryFind id.Name with
     | Some binding -> binding
     | None ->
-        // If the identifier isn't bound, it takes on the 'default' meaining.
+        // If the identifier isn't bound, it takes on the 'default' meaning.
         // For keywords this is their marker symbol. For other identifiers this
         // is a variable in the scope 0 context (global).
         match id.Name with

@@ -8,7 +8,7 @@ module Mutton.Illuminate
 
 open Mutton.Syntax
 
-/// An opaque marker. Added to items in the Stx treeto track their source
+/// An opaque marker. Added to items in the Stx tree to track their source
 /// provenance. This is used for hygiene and name resolution.
 type Stamp = int
 

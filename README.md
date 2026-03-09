@@ -31,7 +31,7 @@ rule = (<form> <form>)              ; Transfomer definition. Binds syntax to the
 
 Programs are transformed iniitally by the parser from a string into a concrete
 syntax tree. This tree is then "illuminated" to add *syntactic context* before
-macro expansion. We use this source provenence to enforce hygene with
+macro expansion. We use this source provenance to enforce hygiene with
 *syntactic closures*.
 
 Once expansion is complete the macro-free source text can be bound into an
@@ -53,7 +53,7 @@ We try to follow the Terminology from Bawden & Rees, with a few additions:
  * An `identifier` is a `name` used to refer to a variable.
  * A `variable` is the storage location for a specific value. The same
    `identifier` may refer to different `variable`s depending on the environment.
- * A `macro` is a syntax tranformer.
+ * A `macro` is a syntax transformer.
  * A `syntactic construct` is an item with meaning at syntax expansion time,
    such as a `keyword` or `macro`.
 
@@ -69,8 +69,8 @@ When binding there are two "environments" to consider: syntactic and value.
    values. It is used to resolve the locations that values should be read or
    written from.
 
-   In this toy lanugage our locations are simple named suffixes of the variable
-   name. e.g. an idntifier `x` may refer to the storage location `x.1` or `x.2`
+   In this toy language our locations are simple named suffixes of the variable
+   name. e.g. an identifier `x` may refer to the storage location `x.1` or `x.2`
    etc. depending on scope. A production compiler would need to assign these to
    local variable slots, argument indexes, capture environment locations, or
    globals.
