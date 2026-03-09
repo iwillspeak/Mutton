@@ -31,17 +31,49 @@ rule = (<form> <form>)              ; Transfomer definition. Binds syntax to the
 
 Programs are transformed iniitally by the parser from a string into a concrete
 syntax tree. This tree is then "illuminated" to add *syntactic context* before
-macro expansion. Syntactic context allows annotation of expressions with two
-items:
-
- * The active *renamings* withn the item. This is used to tell identifiers apart
-   in syntax where the source code uses the same symbol
- * The current *marks* applied to a given syntax. Marks are used to keep track
-   of syntax that was transformed by an expansion to ensure the correct
-   renamings are applied.
+macro expansion. We use this source provenance to enforce hygiene with
+*syntactic closures*.
 
 Once expansion is complete the macro-free source text can be bound into an
-output format ready for use.
+output format ready for use. We aim to perform this in a single `bind` pass
+that takes the illuminated `Stx` tree and recursively walks it expanding
+each node as it goes and then resolving the resulting macro-free syntax into
+a `Bound` program with syntax constructs applied and variables assigned to
+their storage locations.
+
+## Naming Things ™️
+
+We try to follow the Terminology from Bawden & Rees, with a few additions:
+
+ * A `name` is a token used to "name" something. This is our `SYM` in the
+   grammar.
+ * A `keyword` is a `name` used to introduce a syntactic construct. The
+   keywords supported in our language are: `lam`, `def`, `def-syn`, `quot`, and
+   `stx`.
+ * An `identifier` is a `name` used to refer to a variable.
+ * A `variable` is the storage location for a specific value. The same
+   `identifier` may refer to different `variable`s depending on the environment.
+ * A `macro` is a syntax transformer.
+ * A `syntactic construct` is an item with meaning at syntax expansion time,
+   such as a `keyword` or `macro`.
+
+When binding there are two "environments" to consider: syntactic and value. 
+
+ * The _syntactic environment_ contains the mapping of `names` to `variables`
+   `keywords`, and `macros`. It is used during the `expand` section
+   of the `bind` pass to recognise references to `syntactic constructs`, and
+   distinguish the hygenically correct `variable` that an `identifier` refers
+   to.
+
+ * The _value environment_ maps variables to storage locations for their
+   values. It is used to resolve the locations that values should be read or
+   written from.
+
+   In this toy language our locations are simple named suffixes of the variable
+   name. e.g. an identifier `x` may refer to the storage location `x.1` or `x.2`
+   etc. depending on scope. A production compiler would need to assign these to
+   local variable slots, argument indexes, capture environment locations, or
+   globals.
 
 ## IL, ASTs, and Representations
 
