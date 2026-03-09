@@ -2,6 +2,8 @@
 
 > Much ado thereabouts
 
+![Mutton Mascot](https://github.com/user-attachments/assets/21cb17ce-0d5e-4ee4-b774-3ecc54742dbb)
+
 An experiment in hygenic macro expansion.
 
 ## Syntax
