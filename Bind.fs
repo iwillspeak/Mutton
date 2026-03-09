@@ -1,7 +1,18 @@
 module Mutton.Binder
 
 open Mutton.Illuminate
-open Mutton.Syntax
+open Mutton.Utils
+open System.Collections.Generic
+
+/// A named storage location with a unique numeric suffix for scope tracking.
+/// The integer disambiguates variables with the same base name in different scopes.
+[<StructuredFormatDisplay("{DisplayText}")>]
+type Storage =
+    | S of string * int
+    member private this.DisplayText =
+        let (S (name, suffix)) = this
+        sprintf "%s.%d" name suffix
+    override this.ToString() = this.DisplayText
 
 /// A simple s-expression datum. This is the runtime representation of
 /// quoted syntax — compiler metadata (scope IDs, CST pointers) is stripped
@@ -11,17 +22,6 @@ type Datum =
     | DSym of string
     | DList of Datum list
 
-/// Strip an illuminated syntax node down to a plain datum, discarding all
-/// compiler metadata (scope IDs, CST node references).
-let rec private strip (stx: Stx) : Datum =
-    match stx with
-    | StxLiteral(l, _) ->
-        match l.Value with
-        | Some n -> DNum n
-        | None -> DSym "#err"
-    | StxIdent(id, _, _) -> DSym id
-    | StxForm(items, _, _) -> DList(List.map strip items)
-
 /// Bound Expression Node
 ///
 /// Each variant represents a different kind of bound node available in the
@@ -29,234 +29,164 @@ let rec private strip (stx: Stx) : Datum =
 /// than the syntactic one. Any symbols in the program are resolved to their
 /// appropriate storage locations.
 type Bound =
-    | Var of string
-    | Def of string * Bound
+    | Var of Storage
+    | Def of Storage * Bound
     | App of Bound * Bound list
-    | Fun of string * Bound
+    | Fun of Storage * Bound
     | Stx of Stx
     | Quot of Datum
-    | Error of string
 
-/// A single macro transformer rule. `Params` are the pattern-variable names
-/// from the pattern form and `Template` is the syntax to expand into.
-type private MacroRule =
-    { Params: string list
-      Template: Stx
-      DefSiteRenames: Map<string, string>
-      DefSiteMacros: Map<string, MacroRule list> }
+/// Errors that can occur during binding. These are simple string messages with
+/// attached source ranges. In a more complex implementation, these would likely
+/// be richer structures with error codes, suggestions, etc.
+type BinderError = string * Firethorn.TextRange
 
-/// Environment threaded through the binder. Carries scope information,
-/// alpha-renamings, macro definitions, and any pre-bound pattern-variable
-/// values during a macro expansion.
-type private BindEnv =
-    { Scopes: ScopeTable
-      Renames: Map<string, string>
-      Macros: Map<string, MacroRule list>
-      PreBound: Map<string, Bound> }
+/// A simple binding context. This is used to resolve identifiers to their
+/// bound names. In a more complex language, this would need to be extended to
+/// support multiple namespaces, modules, etc.
+type private BindingContext =
+    {
+        Parent: BindingContext option
+        Bindings: Dictionary<Ident, Storage>
+    }
+
+module private BinderCtx =
+
+    /// Create an empty binding context
+    let empty = { Parent = None; Bindings = Dictionary<Ident, Storage>() }
+
+    /// Extend a binding context with a new name mapping
+    let extend ident bound ctx =
+        // Use indexer assignment to avoid exceptions on duplicate keys.
+        // This allows redefinition in the same scope without crashing.
+        ctx.Bindings.[ident] <- bound
+
+    /// Create a new child context with the given parent
+    let withParent parent =
+        { Parent = Some parent; Bindings = Dictionary<Ident, Storage>() }
+
+    /// Resolve a name in the given context, searching parent contexts if
+    /// necessary. Returns the resolved name or the original name if not found.
+    let rec resolve ident ctx =
+        match ctx.Bindings.TryGetValue ident with
+        | true, bound -> bound
+        | false, _ ->
+            match ctx.Parent with
+            | Some parent -> resolve ident parent
+            | None -> S(ident.Name, 0)
 
 // ── Binding ────────────────────────────────────────────────────────────────
 
-/// Bind a single syntax node, returning the bound tree (or None for
-/// compile-time-only forms like `def-syn`) and the potentially-updated
-/// environment.
-let rec private bindOne (env: BindEnv) (stx: Stx) : Bound option * BindEnv =
+let mutable private varSuffix = ref 0
+
+/// Generate a fresh storage location for the given variable name
+let private freshStorage (name: string) : Storage =
+    let suffix = System.Threading.Interlocked.Increment(varSuffix)
+    S(name, suffix)
+
+/// Strip an illuminated syntax node down to a plain datum, discarding all
+/// compiler metadata (scope IDs, CST node references).
+let rec private strip (stx: Stx) : Datum =
     match stx with
-    | StxLiteral(l, _) ->
+    | StxLiteral l ->
         match l.Value with
-        | Some n -> (Some(Quot(DNum n)), env)
-        | None -> (Some(Error $"Invalid literal %A{l}"), env)
+        | Some n -> DNum n
+        | None -> DSym "#err"
+    | StxIdent(id, _) -> DSym id.Name
+    | StxForm(items, _) -> DList(List.map strip items)
+    | StxClosure(stx, _) -> strip stx
 
-    | StxIdent(id, _, scope) ->
-        let resolved = env.Scopes.Resolve(id, scope)
-        // Check pre-bound pattern variables first (before alpha-renames).
-        match Map.tryFind resolved env.PreBound with
-        | Some bound -> (Some bound, env)
-        | None ->
-            let renamed = Map.tryFind resolved env.Renames |> Option.defaultValue resolved
-            (Some(Var renamed), env)
-
-    | StxForm(items, _, _) ->
+/// Bind a single expression
+let rec private bindOne (ctx: BindingContext) (stxEnv: StxEnv) =
+    function
+    | StxLiteral l ->
+        match l.Value with
+        | Some n -> Quot(DNum n) |> Some |> Ok
+        | None -> ($"Invalid literal %A{l}", l.Syntax.Range) |> Error
+    | StxIdent(id, _) ->
+        Var(BinderCtx.resolve id ctx) |> Some |> Ok
+    | StxForm(items, f) -> 
         match items with
-        | [] -> (Some(Error "No applicant in application form."), env)
+        | [] -> Error ($"No applicant in application form.", f.Syntax.Range)
+        | StxIdent(id, sym) :: args ->
+            match Expand.resolve id stxEnv with
+            | Illuminate.Lam -> bindLambda ctx stxEnv f args
+            | Illuminate.Def -> bindDefinition ctx stxEnv f args
+            | Illuminate.Quot -> bindQuotation f args
+            | Illuminate.Stx -> bindSyntaxQuotation f args
+            | _ -> bindSimpleApp ctx stxEnv f (StxIdent(id, sym)) args
         | applicant :: args ->
-            match applicant with
-            | StxIdent(id, _, scope) ->
-                let resolved = env.Scopes.Resolve(id, scope)
-                // If the operator is a pre-bound pattern variable it is a
-                // value, not a keyword — treat the form as a plain application.
-                if Map.containsKey resolved env.PreBound then
-                    (Some(bindSimpleApp env applicant args), env)
-                else
-                    let renamed =
-                        Map.tryFind resolved env.Renames |> Option.defaultValue resolved
+            bindSimpleApp ctx stxEnv f applicant args
+    | StxClosure(stx, env) -> bindOne ctx env stx
 
-                    match renamed with
-                    | "lam" -> (Some(bindLambda env args), env)
-                    | "def" -> bindDefinition env args
-                    | "def-syn" -> bindDefSyn env args
-                    | "quot" -> (Some(bindQuotation args), env)
-                    | "stx" -> (Some(bindSyntaxQuotation args), env)
-                    | _ ->
-                        match Map.tryFind renamed env.Macros with
-                        | Some rules -> expandAndBind env rules args
-                        | None -> (Some(bindSimpleApp env applicant args), env)
-            | _ -> (Some(bindSimpleApp env applicant args), env)
+and private bindSimpleApp ctx stxEnv f applicant args =
+    bindOne ctx stxEnv applicant
+    |> Result.bind (fun called ->
+        args
+        |> List.map (bindOne ctx stxEnv)
+        |> accumulateResults
+        |> Result.bind (fun boundArgs ->
+            match called with
+            | Some called ->
+                App(called, (List.choose id boundArgs)) |> Some |> Ok
+            | None -> Error ($"Invalid function in application: has no value.", f.Syntax.Range)))
 
-// ── Special forms ──────────────────────────────────────────────────────────
-
-and private bindLambda (env: BindEnv) (args: Stx list) =
+and private bindLambda ctx stxEnv f args =
     match args with
-    | [ StxIdent(id, sym, scope); body ] ->
-        let origName = env.Scopes.Resolve(id, scope)
-        let freshName = freshId sym
-        let bodyEnv =
-            { env with
-                Renames = Map.add origName freshName env.Renames
-                // Shadow any pre-bound pattern variable with the same name so
-                // template-introduced bindings correctly capture their own body.
-                PreBound = Map.remove origName env.PreBound }
+    | [ StxIdent(id, _); body ] ->
+        let argStorage = freshStorage id.Name
+        let bodyCtx =
+            BinderCtx.withParent ctx
+        BinderCtx.extend id argStorage bodyCtx
+        match bindOne bodyCtx stxEnv body with 
+        | Ok(Some boundBody) ->
+            Fun(argStorage, boundBody) |> Some |> Ok
+        | Ok None ->
+            Error ($"Body has no value.", f.Syntax.Range)
+        | e -> e
+    | _ -> Error ($"Invalid lambda form %A{args}", f.Syntax.Range)
 
-        let bound, _ = bindOne bodyEnv body
-
-        Fun(freshName, bound |> Option.defaultValue (Error "void"))
-    | _ -> Error $"Invalid lambda form %A{args}"
-
-and private bindDefinition (env: BindEnv) (args: Stx list) =
+and private bindDefinition ctx stxEnv f args =
     match args with
-    | [ StxIdent(id, sym, scope); body ] ->
-        let origName = env.Scopes.Resolve(id, scope)
-        let freshName = freshId sym
-        let bound, env = bindOne env body
-        let env =
-            { env with
-                Renames = Map.add origName freshName env.Renames
-                PreBound = Map.remove origName env.PreBound }
+    | [ StxIdent(id, _); body ] ->
+        match bindOne ctx stxEnv body with
+        | Ok(Some boundBody) ->
+            let newStore = freshStorage id.Name
+            BinderCtx.extend id newStore ctx
+            Def(newStore, boundBody) |> Some |> Result.Ok
+        | Ok None ->
+            Error ($"Invalid `def` body: has no value.", f.Syntax.Range)
+        | e -> e
+    | _ -> Error ($"Invalid `def` form %A{args}", f.Syntax.Range)
 
-        (bound |> Option.map (fun b -> Def(freshName, b)), env)
-    | _ -> (Some(Error $"Invalid `def` form %A{args}"), env)
-
-and private bindQuotation args =
+and private bindQuotation f args =
     match args with
-    | [ form ] -> Quot(strip form)
-    | _ -> Error $"Invalid `quot` form: %A{args}"
+    | [ form ] -> Quot(strip form) |> Some |> Result.Ok
+    | _ -> Error ($"Invalid `quot` form: %A{args}", f.Syntax.Range)
 
-and private bindSyntaxQuotation args =
+and private bindSyntaxQuotation f args =
     match args with
-    | [ form ] -> Stx form
-    | _ -> Error $"Invalid `stx` form: %A{args}"
+    | [ form ] -> Stx form |> Some |> Result.Ok
+    | _ -> Error ($"Invalid `stx` form: %A{args}", f.Syntax.Range)
 
-// ── Macro definition ───────────────────────────────────────────────────────
-
-/// Parse a `def-syn` form. Extracts the macro name and transformer rules,
-/// registers the macro in the environment, and produces no runtime output.
-and private bindDefSyn (env: BindEnv) (args: Stx list) : Bound option * BindEnv =
-    match args with
-    | StxIdent(id, _, scope) :: ruleStxs ->
-        let macroName =
-            let resolved = env.Scopes.Resolve(id, scope)
-            Map.tryFind resolved env.Renames |> Option.defaultValue resolved
-
-        let rules = parseDefSynRules env ruleStxs
-        let env = { env with Macros = Map.add macroName rules env.Macros }
-        (None, env)
-    | _ -> (Some(Error $"Invalid `def-syn` form %A{args}"), env)
-
-/// Parse the rule forms inside a `def-syn`. Each rule is expected to be
-/// `(<pattern> <template>)` where the pattern is a form whose first element
-/// is the macro name and the remaining elements are parameter names.
-and private parseDefSynRules (env: BindEnv) (ruleStxs: Stx list) : MacroRule list =
-    ruleStxs
-    |> List.choose (fun ruleStx ->
-        match ruleStx with
-        | StxForm([ pattern; template ], _, _) ->
-            match pattern with
-            | StxForm(StxIdent _ :: paramStxs, _, _) ->
-                let parms =
-                    paramStxs
-                    |> List.choose (fun p ->
-                        match p with
-                        | StxIdent(pid, _, pscope) -> Some(env.Scopes.Resolve(pid, pscope))
-                        | _ -> None)
-
-                Some
-                    { Params = parms
-                      Template = template
-                      DefSiteRenames = env.Renames
-                      DefSiteMacros = env.Macros }
-            | _ -> None
-        | _ -> None)
-
-// ── Macro expansion ────────────────────────────────────────────────────────
-
-/// Expand a macro call by matching the arguments against the rule patterns,
-/// pre-binding each argument in the *use-site* environment, then binding the
-/// template with those pre-bound values. This naturally provides hygiene:
-/// template-introduced bindings (lam/def) get fresh names via alpha-renaming,
-/// while pattern variables resolve to their already-bound use-site values.
-and private expandAndBind (env: BindEnv) (rules: MacroRule list) (args: Stx list) : Bound option * BindEnv =
-    let matchedRule =
-        rules
-        |> List.tryPick (fun rule ->
-            if List.length rule.Params = List.length args then
-                Some rule
-            else
-                None)
-
-    match matchedRule with
-    | Some rule ->
-        // Bind each argument at the use site.
-        let boundArgs =
-            List.zip rule.Params args
-            |> List.map (fun (param, argStx) ->
-                let bound, _ = bindOne env argStx
-                (param, bound |> Option.defaultValue (Error "void")))
-            |> Map.ofList
-
-        // Bind the template in the definition-site environment, augmented
-        // with the pre-bound pattern variables and the full set of macros
-        // known at expansion time (so later-defined macros are still visible
-        // inside templates — matches sequential top-level evaluation order).
-        let templateEnv =
-            { env with
-                Renames = rule.DefSiteRenames
-                Macros = Map.fold (fun acc k v -> Map.add k v acc) rule.DefSiteMacros env.Macros
-                PreBound = boundArgs }
-
-        let bound, _ = bindOne templateEnv rule.Template
-        (bound, env)
-    | None -> (Some(Error $"No matching macro rule for arguments %A{args}"), env)
-
-// ── Simple application ─────────────────────────────────────────────────────
-
-and private bindSimpleApp (env: BindEnv) applicant args =
-    let called = bindOne env applicant |> fst |> Option.defaultValue (Error "void")
-    let boundArgs = args |> List.map (fun a -> bindOne env a |> fst |> Option.defaultValue (Error "void"))
-    App(called, boundArgs)
-
-// ── Sequence binding ───────────────────────────────────────────────────────
-
-/// Bind a sequence of top-level syntax nodes, threading the environment so
-/// that `def` and `def-syn` forms are visible to later items. `def-syn`
-/// produces no output in the bound tree.
-and private bindSequence (env: BindEnv) (stxs: Stx list) : Bound list =
-    match stxs with
-    | [] -> []
+let rec private bindSequence (ctx: BindingContext) (stxEnv: StxEnv) (exprs: Stx list) : Result<Bound list, string * Firethorn.TextRange> =
+    match exprs with
+    | [] -> Ok []
     | stx :: rest ->
-        let bound, env = bindOne env stx
-        let restBound = bindSequence env rest
+        match Expand.expand stx stxEnv with
+        | None, newStxEnv ->
+            // def-syn: no runtime value produced; continue with updated env
+            bindSequence ctx newStxEnv rest
+        | Some expanded, newStxEnv ->
+            bindOne ctx newStxEnv expanded
+            |> Result.bind (fun bound ->
+                match bound with
+                | None -> bindSequence ctx newStxEnv rest
+                | Some b ->
+                    bindSequence ctx newStxEnv rest
+                    |> Result.map (fun bs -> b :: bs))
 
-        match bound with
-        | Some b -> b :: restBound
-        | None -> restBound
-
-/// Main binder entry point. Binds the given illuminated syntax, performing
-/// alpha-renaming and macro expansion in a single pass. The expand phase
-/// is no longer needed when using this entry point.
-let public bind (scopes: ScopeTable) (syntax: Stx list) : Bound list =
-    let env =
-        { Scopes = scopes
-          Renames = Map.empty
-          Macros = Map.empty
-          PreBound = Map.empty }
-
-    bindSequence env syntax
+/// Main binder entry point. Runs the binder over each input item
+let public bind =
+    let ctx = BinderCtx.empty
+    bindSequence ctx Map.empty

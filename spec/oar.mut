@@ -2,3 +2,8 @@
     ((or a b) ((lam x (if x x b)) a)))
 
 (or 1 (or 2 3))
+
+(def x 100)
+((lam a
+    ((lam b (or x (or a b))) 200))
+    300)
