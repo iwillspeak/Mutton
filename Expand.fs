@@ -27,12 +27,11 @@ let resolve (id: Ident) (stxEnv: StxEnv) : StxBinding =
         | _ -> Var id
 
 /// A stamp marking a distinct syntax context.
-let mutable private stamp = ref 1
+let mutable private stamp = 1
 
 /// Generate a fresh stamp for tracking syntax provenance
 let newStamp () =
-    let s = System.Threading.Interlocked.Increment(stamp)
-    s
+    System.Threading.Interlocked.Increment(&stamp)
 
 /// A rename adds a new entry to the environment binding the name of the given
 /// identifier to a new variable.
@@ -83,7 +82,7 @@ let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx option * StxEnv =
     | StxIdent(id, sym) ->
         let resolved = resolve id stxEnv
         match resolved with
-        | Var _ -> (Some stx, stxEnv)
+        | Var rId -> (Some (StxIdent(rId, sym)), stxEnv)
         | x -> failwith $"Unexpected non-variable syntax binding for identifier {id.Name}: %A{resolved}"
     | StxForm ([], _) -> (Some stx, stxEnv)
     | StxForm (head :: args, f) ->
@@ -95,7 +94,7 @@ let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx option * StxEnv =
                 (Some (transformer stx stxEnv), stxEnv)
             | Quot | Stx -> (Some stx, stxEnv)
             | Lam -> (Some (expandLam head args f stxEnv), stxEnv)
-            | Def -> failwith "def not implemented, needs to modify 'outer' syntax environment"
+            | Def -> expandDef head args f stxEnv
             | DefSyn -> expandDefSyn args stxEnv
             | Var _ ->
                 // These are not macros, so we just recursively expand the subforms.
@@ -117,9 +116,25 @@ and expandLam head args low stxEnv =
     match args with
     | StxIdent(id, s) :: body ->
         let innerEnv = rename stxEnv id
+        let renamedId =
+            match resolve id innerEnv with
+            | Var rId -> rId
+            | _ -> id
         let expandedBody = List.map (expandOne innerEnv) body
-        StxForm(head :: StxIdent(id, s) :: expandedBody, low)
+        StxForm(head :: StxIdent(renamedId, s) :: expandedBody, low)
     | _ -> failwith "Invalid syntax for lam: expected (lam <id> <body>)"
+
+and private expandDef head args f stxEnv =
+    match args with
+    | [ StxIdent(id, s); body ] ->
+        let expandedBody = expandOne stxEnv body
+        let newEnv = rename stxEnv id
+        let renamedId =
+            match resolve id newEnv with
+            | Var rId -> rId
+            | _ -> id
+        (Some (StxForm([ head; StxIdent(renamedId, s); expandedBody ], f)), newEnv)
+    | _ -> failwith "Invalid def form: expected (def <id> <expr>)"
 
 /// Parse a `def-syn` form and return an updated syntax environment containing
 /// the newly defined macro transformer.
@@ -133,10 +148,11 @@ and private expandDefSyn (args: Stx list) (stxEnv: StxEnv) : Stx option * StxEnv
     | _ -> failwith "Invalid def-syn form: expected (def-syn <name> <rule>...)"
 
 /// Parse a single syntax rule stx into a `MacroRule`, failing immediately if
-/// the rule shape is invalid.
+/// the rule shape is invalid. The head of the pattern must be an identifier,
+/// but its value is not checked — patterns may rename the macro inside their body.
 and private parseRule (ruleStx: Stx) : MacroRule =
     match ruleStx with
-    | StxForm([StxForm(_ :: patArgs, _); template], _) ->
+    | StxForm([StxForm(StxIdent _ :: patArgs, _); template], _) ->
         // Extract the identifier from each pattern argument, failing if any is not an identifier
         let idents = patArgs |> List.mapi (fun i pat ->
             match pat with
