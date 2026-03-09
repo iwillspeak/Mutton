@@ -1,0 +1,5 @@
+%~> Ok
+  [App (Fun (x.1, Quot (DSym "x")), [Quot (DNum 100)]);
+   App (Fun (y.2, Stx (StxIdent ({ Name = "y"
+                                   Stamp = 0 }, y))), [Quot (DNum 200)]);
+   App (Fun (z.3, Var z.3), [Quot (DNum 300)])]

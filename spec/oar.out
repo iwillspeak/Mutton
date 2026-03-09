@@ -1,0 +1,28 @@
+%~> Ok
+  [App
+     (Fun
+        (x.1,
+         App
+           (Var if.0,
+            [Var x.1; Var x.1;
+             App
+               (Fun (x.2, App (Var if.0, [Var x.2; Var x.2; Quot (DNum 3)])),
+                [Quot (DNum 2)])])), [Quot (DNum 1)]);
+   Def (x.3, Quot (DNum 100));
+   App
+     (Fun
+        (a.4,
+         App
+           (Fun
+              (b.5,
+               App
+                 (Fun
+                    (x.6,
+                     App
+                       (Var if.0,
+                        [Var x.6; Var x.6;
+                         App
+                           (Fun
+                              (x.7, App (Var if.0, [Var x.7; Var x.7; Var b.5])),
+                            [Var a.4])])), [Var x.3])), [Quot (DNum 200)])),
+      [Quot (DNum 300)])]
