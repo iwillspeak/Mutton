@@ -1,20 +1,8 @@
 module Mutton.Binder
 
 open Mutton.Illuminate
+open Mutton.Utils
 open System.Collections.Generic
-
-module Utils =
-
-    /// Pull the `Ok` values out of a list of `Result`s, or return the first `Error` if any are present.
-    let accumulateResults (results: Result<'a, 'e> list) : Result<'a list, 'e> =
-        let rec loop acc = function
-            | [] -> Ok (List.rev acc)
-            | r :: rs ->
-                match r with
-                | Ok v -> loop (v :: acc) rs
-                | Error e -> Error e
-
-        loop [] results
 
 /// A named storage location with a unique numeric suffix for scope tracking.
 /// The integer disambiguates variables with the same base name in different scopes.
@@ -82,7 +70,7 @@ module private BinderCtx =
     let rec resolve ident ctx =
         match ctx.Bindings.TryGetValue ident with
         | true, bound -> bound
-        | false, _->
+        | false, _ ->
             match ctx.Parent with
             | Some parent -> resolve ident parent
             | None -> S(ident.Name, 0)
@@ -109,7 +97,7 @@ let rec private strip (stx: Stx) : Datum =
     | StxClosure(stx, _) -> strip stx
 
 /// Bind a single expression
-let rec private bindOne (ctx: BindingContext) =
+let rec private bindOne (ctx: BindingContext) (stxEnv: StxEnv) =
     function
     | StxLiteral l ->
         match l.Value with
@@ -120,38 +108,37 @@ let rec private bindOne (ctx: BindingContext) =
     | StxForm(items, f) -> 
         match items with
         | [] -> Error ($"No applicant in application form.", f.Syntax.Range)
-        | StxIdent(id, _) :: args when id.Name = "lam" ->
-            bindLambda ctx f args
-        | StxIdent(id, _) :: args when id.Name = "def" ->
-            bindDefinition ctx f args
-        | StxIdent(id, _) :: args when id.Name = "quot" ->
-            bindQuotation f args
-        | StxIdent(id, _) :: args when id.Name = "stx" ->
-            bindSyntaxQuotation f args
+        | StxIdent(id, sym) :: args ->
+            match Expand.resolve id stxEnv with
+            | Illuminate.Lam -> bindLambda ctx stxEnv f args
+            | Illuminate.Def -> bindDefinition ctx stxEnv f args
+            | Illuminate.Quot -> bindQuotation f args
+            | Illuminate.Stx -> bindSyntaxQuotation f args
+            | _ -> bindSimpleApp ctx stxEnv f (StxIdent(id, sym)) args
         | applicant :: args ->
-            bindSimpleApp ctx f applicant args
-    | StxClosure(stx, env) -> bindOne ctx stx
+            bindSimpleApp ctx stxEnv f applicant args
+    | StxClosure(stx, env) -> bindOne ctx env stx
 
-and private bindSimpleApp ctx f applicant args =
-    bindOne ctx applicant
+and private bindSimpleApp ctx stxEnv f applicant args =
+    bindOne ctx stxEnv applicant
     |> Result.bind (fun called ->
         args
-        |> List.map (bindOne ctx)
-        |> Utils.accumulateResults
+        |> List.map (bindOne ctx stxEnv)
+        |> accumulateResults
         |> Result.bind (fun boundArgs ->
             match called with
             | Some called ->
                 App(called, (List.choose id boundArgs)) |> Some |> Ok
             | None -> Error ($"Invalid function in application: has no value.", f.Syntax.Range)))
 
-and private bindLambda ctx f args =
+and private bindLambda ctx stxEnv f args =
     match args with
     | [ StxIdent(id, _); body ] ->
         let argStorage = freshStorage id.Name
         let bodyCtx =
             BinderCtx.withParent ctx
         BinderCtx.extend id argStorage bodyCtx
-        match bindOne bodyCtx body with 
+        match bindOne bodyCtx stxEnv body with 
         | Ok(Some boundBody) ->
             Fun(argStorage, boundBody) |> Some |> Ok
         | Ok None ->
@@ -159,10 +146,10 @@ and private bindLambda ctx f args =
         | e -> e
     | _ -> Error ($"Invalid lambda form %A{args}", f.Syntax.Range)
 
-and private bindDefinition ctx f args =
+and private bindDefinition ctx stxEnv f args =
     match args with
     | [ StxIdent(id, _); body ] ->
-        match bindOne ctx body with
+        match bindOne ctx stxEnv body with
         | Ok(Some boundBody) ->
             let newStore = freshStorage id.Name
             BinderCtx.extend id newStore ctx
@@ -191,13 +178,13 @@ let rec private bindSequence (ctx: BindingContext) (stxEnv: StxEnv) (exprs: Stx 
             // def-syn: no runtime value produced; continue with updated env
             bindSequence ctx newStxEnv rest
         | Some expanded, newStxEnv ->
-            let bound = bindOne ctx expanded
-            let next = bindSequence ctx newStxEnv rest
-            match bound with
-            | Ok(Some b) ->
-                next |> Result.map (fun bs -> b :: bs)
-            | Ok None -> next
-            | Error e -> Error e
+            bindOne ctx newStxEnv expanded
+            |> Result.bind (fun bound ->
+                match bound with
+                | None -> bindSequence ctx newStxEnv rest
+                | Some b ->
+                    bindSequence ctx newStxEnv rest
+                    |> Result.map (fun bs -> b :: bs))
 
 /// Main binder entry point. Runs the binder over each input item
 let public bind =

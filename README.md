@@ -29,7 +29,7 @@ rule = (<form> <form>)              ; Transfomer definition. Binds syntax to the
 
 ## Reading, Parsing, Binding, and Illumination
 
-Programs are transformed iniitally by the parser from a string into a concrete
+Programs are transformed initially by the parser from a string into a concrete
 syntax tree. This tree is then "illuminated" to add *syntactic context* before
 macro expansion. We use this source provenance to enforce hygiene with
 *syntactic closures*.
@@ -62,7 +62,7 @@ When binding there are two "environments" to consider: syntactic and value.
  * The _syntactic environment_ contains the mapping of `names` to `variables`
    `keywords`, and `macros`. It is used during the `expand` section
    of the `bind` pass to recognise references to `syntactic constructs`, and
-   distinguish the hygenically correct `variable` that an `identifier` refers
+   distinguish the hygienically correct `variable` that an `identifier` refers
    to.
 
  * The _value environment_ maps variables to storage locations for their

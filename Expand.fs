@@ -27,12 +27,11 @@ let resolve (id: Ident) (stxEnv: StxEnv) : StxBinding =
         | _ -> Var id
 
 /// A stamp marking a distinct syntax context.
-let mutable private stamp = ref 1
+let mutable private stamp = 1
 
 /// Generate a fresh stamp for tracking syntax provenance
 let newStamp () =
-    let s = System.Threading.Interlocked.Increment(stamp)
-    s
+    System.Threading.Interlocked.Increment(&stamp)
 
 /// A rename adds a new entry to the environment binding the name of the given
 /// identifier to a new variable.
@@ -83,7 +82,7 @@ let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx option * StxEnv =
     | StxIdent(id, sym) ->
         let resolved = resolve id stxEnv
         match resolved with
-        | Var _ -> (Some stx, stxEnv)
+        | Var rId -> (Some (StxIdent(rId, sym)), stxEnv)
         | x -> failwith $"Unexpected non-variable syntax binding for identifier {id.Name}: %A{resolved}"
     | StxForm ([], _) -> (Some stx, stxEnv)
     | StxForm (head :: args, f) ->
@@ -95,7 +94,7 @@ let rec public expand (stx: Stx) (stxEnv: StxEnv) : Stx option * StxEnv =
                 (Some (transformer stx stxEnv), stxEnv)
             | Quot | Stx -> (Some stx, stxEnv)
             | Lam -> (Some (expandLam head args f stxEnv), stxEnv)
-            | Def -> failwith "def not implemented, needs to modify 'outer' syntax environment"
+            | Def -> (Some (expandDef head args f stxEnv), stxEnv)
             | DefSyn -> expandDefSyn args stxEnv
             | Var _ ->
                 // These are not macros, so we just recursively expand the subforms.
@@ -117,33 +116,48 @@ and expandLam head args low stxEnv =
     match args with
     | StxIdent(id, s) :: body ->
         let innerEnv = rename stxEnv id
+        let renamedId =
+            match resolve id innerEnv with
+            | Var rId -> rId
+            | _ -> id
         let expandedBody = List.map (expandOne innerEnv) body
-        StxForm(head :: StxIdent(id, s) :: expandedBody, low)
+        StxForm(head :: StxIdent(renamedId, s) :: expandedBody, low)
     | _ -> failwith "Invalid syntax for lam: expected (lam <id> <body>)"
+
+and private expandDef head args f stxEnv =
+    match args with
+    | [ id; body ] -> StxForm([ head; id; expandOne stxEnv body ], f)
+    | _ -> failwith "Invalid def form: expected (def <id> <expr>)"
 
 /// Parse a `def-syn` form and return an updated syntax environment containing
 /// the newly defined macro transformer.
 and private expandDefSyn (args: Stx list) (stxEnv: StxEnv) : Stx option * StxEnv =
     match args with
     | StxIdent(macroName, _) :: ruleStxs ->
-        let rules = List.map parseRule ruleStxs
+        let rules = List.map (parseRule macroName.Name) ruleStxs
         let transformer = makeSynTransformer rules stxEnv macroName.Name
         let newEnv = Map.add macroName.Name (Macro transformer) stxEnv
         (None, newEnv)
     | _ -> failwith "Invalid def-syn form: expected (def-syn <name> <rule>...)"
 
 /// Parse a single syntax rule stx into a `MacroRule`, failing immediately if
-/// the rule shape is invalid.
-and private parseRule (ruleStx: Stx) : MacroRule =
+/// the rule shape is invalid. The rule's head identifier must match the macro
+/// name being defined.
+and private parseRule (macroName: string) (ruleStx: Stx) : MacroRule =
     match ruleStx with
-    | StxForm([StxForm(_ :: patArgs, _); template], _) ->
+    | StxForm([StxForm(head :: patArgs, _); template], _) ->
+        match head with
+        | StxIdent(headId, _) when headId.Name = macroName -> ()
+        | StxIdent(headId, _) ->
+            failwith $"Invalid macro rule: rule head '{headId.Name}' does not match macro name '{macroName}'"
+        | _ -> failwith $"Invalid macro rule: expected identifier head for macro '{macroName}', got %A{head}"
         // Extract the identifier from each pattern argument, failing if any is not an identifier
         let idents = patArgs |> List.mapi (fun i pat ->
             match pat with
             | StxIdent(id, _) -> id
             | _ -> failwith $"Invalid pattern in macro rule at position {i}: expected an identifier, got %A{pat}")
         { PatArgs = idents; Template = template }
-    | _ -> failwith $"Invalid macro rule: expected ((name pat...) template), got %A{ruleStx}"
+    | _ -> failwith $"Invalid macro rule: expected (({macroName} pat...) template), got %A{ruleStx}"
 
 /// Build a macro transformer from a list of pre-parsed macro rules and the
 /// definition-time environment. The transformer performs hygienic
