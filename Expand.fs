@@ -34,9 +34,11 @@ let newStamp () =
     System.Threading.Interlocked.Increment(&stamp)
 
 /// A rename adds a new entry to the environment binding the name of the given
-/// identifier to a new variable.
-let rename (env: StxEnv) (id: Ident) : StxEnv =
-    Map.add id.Name (Var { Name = id.Name; Stamp = newStamp() }) env
+/// identifier to a new variable. Returns the updated environment and the new
+/// renamed identifier.
+let rename (env: StxEnv) (id: Ident) : StxEnv * Ident =
+    let renamedId = { Name = id.Name; Stamp = newStamp() }
+    Map.add id.Name (Var renamedId) env, renamedId
 
 // ----------- Pattern Matching and Template Application -----------------
 
@@ -115,11 +117,7 @@ and private expandOne (stxEnv: StxEnv) (stx: Stx) : Stx =
 and expandLam head args low stxEnv =
     match args with
     | StxIdent(id, s) :: body ->
-        let innerEnv = rename stxEnv id
-        let renamedId =
-            match resolve id innerEnv with
-            | Var rId -> rId
-            | _ -> id
+        let (innerEnv, renamedId) = rename stxEnv id
         let expandedBody = List.map (expandOne innerEnv) body
         StxForm(head :: StxIdent(renamedId, s) :: expandedBody, low)
     | _ -> failwith "Invalid syntax for lam: expected (lam <id> <body>)"
@@ -128,11 +126,7 @@ and private expandDef head args f stxEnv =
     match args with
     | [ StxIdent(id, s); body ] ->
         let expandedBody = expandOne stxEnv body
-        let newEnv = rename stxEnv id
-        let renamedId =
-            match resolve id newEnv with
-            | Var rId -> rId
-            | _ -> id
+        let (newEnv, renamedId) = rename stxEnv id
         (Some (StxForm([ head; StxIdent(renamedId, s); expandedBody ], f)), newEnv)
     | _ -> failwith "Invalid def form: expected (def <id> <expr>)"
 
