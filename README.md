@@ -2,7 +2,7 @@
 
 > Much ado thereabouts
 
-![Mutton Mascot](https://github.com/user-attachments/assets/21cb17ce-0d5e-4ee4-b774-3ecc54742dbb)
+![Mutton Mascot](assets/Logo.svg)
 
 An experiment in hygienic macro expansion.
 
