@@ -1,10 +1,10 @@
-# Mutton
+<p align="center">
+  <img src="assets/Logo.svg" alt="Mutton Mascot" width="250">
+</p>
+
+# Mutton - A Lambda Calculus with Syntax Mutation
 
 > Much ado thereabouts
-
-<div style="text-align: center;">
-  <img src="assets/Logo.svg" alt="Mutton Mascot" width="250">
-</div>
 
 An experiment in hygienic macro expansion.
 
