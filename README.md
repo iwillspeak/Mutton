@@ -2,13 +2,17 @@
 
 > Much ado thereabouts
 
-An experiment in hygenic macro expansion.
+<div style="text-align: center;">
+  <img src="assets/Logo.svg" alt="Mutton Mascot" width="250">
+</div>
+
+An experiment in hygienic macro expansion.
 
 ## Syntax
 
 We begin with a simple language supporting lambdas, definitions, and syntax
-transofmration definitions. Plain `def`initions and `lam`bdas introduce bindigns
-into the current environment. `def-syn` definitions however introduce a hygenic
+transformation definitions. Plain `def`initions and `lam`bdas introduce bindings
+into the current environment. `def-syn` definitions however introduce a hygienic
 pattern expansion.
 
 ```bnf
@@ -22,7 +26,7 @@ form = (lam (SYM ... ) <form>...)   ; Lambda definition
 
 atom = NUMBER | SYM
 
-rule = (<form> <form>)              ; Transfomer definition. Binds syntax to the
+rule = (<form> <form>)              ; Transformer definition. Binds syntax to the
                                     ; first form (the pattern), and expands it
                                     ; in the template form.
 ```
@@ -43,7 +47,7 @@ their storage locations.
 
 ## Naming Things ™️
 
-We try to follow the Terminology from Bawden & Rees, with a few additions:
+We try to follow the terminology from Bawden & Rees, with a few additions:
 
  * A `name` is a token used to "name" something. This is our `SYM` in the
    grammar.
@@ -57,7 +61,7 @@ We try to follow the Terminology from Bawden & Rees, with a few additions:
  * A `syntactic construct` is an item with meaning at syntax expansion time,
    such as a `keyword` or `macro`.
 
-When binding there are two "environments" to consider: syntactic and value. 
+When binding there are two "environments" to consider: syntactic and value.
 
  * The _syntactic environment_ contains the mapping of `names` to `variables`
    `keywords`, and `macros`. It is used during the `expand` section
@@ -87,13 +91,13 @@ We have _three_ main representations of the program:
    and acts as the input and output format for macro expansion in `Expand`.
 
    At this stage we replace some of the sugar from the CST. In a full production
-   compiler this is where quote expressions would be tranformed into quote forms
+   compiler this is where quote expressions would be transformed into quote forms
    amongst other simplifications. The idea here is to have a uniform
    representation of the syntax for the later passes to work upon.
 
  * Bound Tree - Resolved representation of the program structure. Bound trees
    no longer think of the program as a "soup of forms" and instead impose some
-   strucutre on the items within it. 
+   structure on the items within it.
 
    Although the expansion phase has some understanding of bindings in order to
    expand _compile time_ elements it is up to the `Bind` pass to resolve these
