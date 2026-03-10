@@ -1,0 +1,4 @@
+%~> Ok
+  [App
+     (Fun (x.1, App (Fun (a.2, Var a.2), [App (Fun (b.3, Var b.3), [Var x.1])])),
+      [Quot (DNum 99)])]

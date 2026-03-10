@@ -1,0 +1,10 @@
+%~> Ok
+  [Stx
+     (StxClosure
+        (StxForm
+           ([StxIdent ({ Name = "foo"
+                         Stamp = 0 }, foo); StxIdent ({ Name = "bar"
+                                                        Stamp = 0 }, bar);
+             StxIdent ({ Name = "baz"
+                         Stamp = 0 }, baz)], (foo bar baz)),
+         map [("quote-expr", Macro <fun:transformer@139>)]))]
