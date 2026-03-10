@@ -2,7 +2,9 @@
 
 > Much ado thereabouts
 
-![Mutton Mascot](assets/Logo.svg)
+<div style="text-align: center;">
+  <img src="assets/Logo.svg" alt="Mutton Mascot" width="250">
+</div>
 
 An experiment in hygienic macro expansion.
 
