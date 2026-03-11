@@ -12,7 +12,7 @@ An experiment in hygienic macro expansion.
 
 This project explores hygienic macro expansion in a small lambda calculus language. The core idea is to use *syntactic closures* — tagging syntax with the environment it was born in — to ensure that macros don't accidentally capture or clobber variable names from the expansion site.
 
-For a walkthrough of the approach and how it evolved from syntax sets to syntax closures, check out the accompanying blog post: [Scrubbing Up](https://willspeak.me/2026/03/11/scrubbing-up.html).
+For a walkthrough of the approach and how it evolved check out the accompanying blog post: [Scrubbing Up](https://willspeak.me/2026/03/11/scrubbing-up.html).
 
 ## Syntax
 
