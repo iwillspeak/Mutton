@@ -8,6 +8,12 @@
 
 An experiment in hygienic macro expansion.
 
+## What's Going On Here? 🐑
+
+This project explores hygienic macro expansion in a small lambda calculus language. The core idea is to use *syntactic closures* — tagging syntax with the environment it was born in — to ensure that macros don't accidentally capture or clobber variable names from the expansion site.
+
+For a walkthrough of the approach and how it evolved from syntax sets to syntax closures, check out the accompanying blog post: [Scrubbing Up](https://willspeak.me/2026/03/11/scrubbing-up.html).
+
 ## Syntax
 
 We begin with a simple language supporting lambdas, definitions, and syntax
@@ -45,7 +51,7 @@ each node as it goes and then resolving the resulting macro-free syntax into
 a `Bound` program with syntax constructs applied and variables assigned to
 their storage locations.
 
-## Naming Things ™️
+## Naming Things ⤢︎
 
 We try to follow the terminology from Bawden & Rees, with a few additions:
 
@@ -77,7 +83,7 @@ When binding there are two "environments" to consider: syntactic and value.
    name. e.g. an identifier `x` may refer to the storage location `x.1` or `x.2`
    etc. depending on scope. A production compiler would need to assign these to
    local variable slots, argument indexes, capture environment locations, or
-   globals.
+globals.
 
 ## IL, ASTs, and Representations
 
